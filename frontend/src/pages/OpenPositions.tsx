@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
+import { usePrices } from "@/hooks/usePrices";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
 import { useClosePosition } from "@/hooks/useClosePosition";
 import { useRollPosition } from "@/hooks/useRollPosition";
@@ -21,6 +22,20 @@ export default function OpenPositions() {
   const closePositionMutation = useClosePosition();
   const rollPositionMutation = useRollPosition();
 
+  // Collect distinct tickers from open positions for price fetching
+  const tickers = useMemo(() => {
+    if (!positions) return [];
+    return [...new Set(positions.map((p) => p.ticker))];
+  }, [positions]);
+
+  const { data: priceData } = usePrices(tickers);
+
+  // Build a lookup map: ticker -> TickerPrice
+  const priceMap = useMemo(() => {
+    if (!priceData?.prices) return {};
+    return Object.fromEntries(priceData.prices.map((p) => [p.ticker, p]));
+  }, [priceData]);
+
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closingPosition, setClosingPosition] = useState<Position | null>(null);
@@ -36,6 +51,7 @@ export default function OpenPositions() {
     () =>
       openPositionColumns({
         accountNames,
+        prices: priceMap,
         onClose: (position) => {
           setClosingPosition(position);
           setCloseDialogOpen(true);
@@ -45,7 +61,7 @@ export default function OpenPositions() {
           setRollDialogOpen(true);
         },
       }),
-    [accountNames]
+    [accountNames, priceMap]
   );
 
   function handleAddSubmit(data: PositionCreateBody) {

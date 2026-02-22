@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type { Account, AccountCreate, AccountUpdate } from "@/types/account";
 import type { DashboardSummary, TickerSummary } from "@/types/dashboard";
 import type { Position, PositionType, PositionStatus } from "@/types/position";
+import type { PriceResponse } from "@/types/price";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -219,6 +220,17 @@ export function getDashboardSummary(
     `/api/v1/dashboard/summary?${searchParams.toString()}`,
     token
   );
+}
+
+// --- Prices ---
+
+export function getPrices(
+  tickers: string[],
+  token: string | null
+): Promise<PriceResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("tickers", tickers.join(","));
+  return apiFetch(`/api/v1/prices?${searchParams.toString()}`, token);
 }
 
 export function getDashboardByTicker(

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import type { Position } from "@/types/position";
+import type { TickerPrice } from "@/types/price";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -36,8 +37,30 @@ interface PositionsTableProps {
 
 interface OpenPositionColumnOptions {
   accountNames?: Record<string, string>;
+  prices?: Record<string, TickerPrice>;
   onClose?: (position: Position) => void;
   onRoll?: (position: Position) => void;
+}
+
+/** Check if a price is stale (last fetched > 5 minutes ago). */
+function isPriceStale(price: TickerPrice): boolean {
+  if (!price.last_fetched) return true;
+  const fetched = new Date(price.last_fetched).getTime();
+  return Date.now() - fetched > 5 * 60 * 1000;
+}
+
+/** Check if price is near the strike for alerting. */
+function isNearStrike(
+  position: Position,
+  currentPrice: number | null
+): boolean {
+  if (currentPrice == null) return false;
+  const strike = position.strike_price;
+  if (position.type === "COVERED_CALL") {
+    return currentPrice >= strike * 0.95;
+  }
+  // CASH_SECURED_PUT
+  return currentPrice <= strike * 1.05;
 }
 
 export function openPositionColumns(
@@ -45,11 +68,19 @@ export function openPositionColumns(
 ): ColumnDef<Position>[] {
   // Support both old signature (just accountNames) and new options object
   let accountNames: Record<string, string> | undefined;
+  let prices: Record<string, TickerPrice> | undefined;
   let onClose: ((position: Position) => void) | undefined;
   let onRoll: ((position: Position) => void) | undefined;
 
-  if (accountNamesOrOptions && "onClose" in accountNamesOrOptions) {
+  if (
+    accountNamesOrOptions &&
+    typeof accountNamesOrOptions === "object" &&
+    ("onClose" in accountNamesOrOptions ||
+      "onRoll" in accountNamesOrOptions ||
+      "prices" in accountNamesOrOptions)
+  ) {
     accountNames = accountNamesOrOptions.accountNames;
+    prices = accountNamesOrOptions.prices;
     onClose = accountNamesOrOptions.onClose;
     onRoll = accountNamesOrOptions.onRoll;
   } else {
@@ -117,6 +148,53 @@ export function openPositionColumns(
       accessorKey: "annualized_roc",
       header: "Ann. ROC",
       cell: ({ getValue }) => pctFmt.format(getValue<number>()),
+    },
+    {
+      id: "current_price",
+      header: "Current Price",
+      accessorFn: (row) => prices?.[row.ticker]?.current_price ?? null,
+      cell: ({ row }) => {
+        const ticker = row.original.ticker;
+        const tickerPrice = prices?.[ticker];
+        if (!tickerPrice || tickerPrice.current_price == null) {
+          return <span className="text-muted-foreground">—</span>;
+        }
+
+        const stale = isPriceStale(tickerPrice);
+        const nearStrike = isNearStrike(row.original, tickerPrice.current_price);
+        const changePct = tickerPrice.change_percent;
+        const changeColor =
+          changePct != null && changePct >= 0
+            ? "text-green-600"
+            : "text-red-600";
+
+        return (
+          <span
+            className={nearStrike ? "rounded bg-yellow-100 px-1 font-semibold" : ""}
+            title={
+              nearStrike
+                ? "Price near strike"
+                : undefined
+            }
+          >
+            {currencyFmt.format(tickerPrice.current_price)}
+            {changePct != null && (
+              <span className={`ml-1 text-xs ${changeColor}`}>
+                {changePct >= 0 ? "+" : ""}
+                {changePct.toFixed(2)}%
+              </span>
+            )}
+            {stale && (
+              <span
+                className="ml-1 text-xs text-orange-500"
+                title="Price data may be stale (>5 min old)"
+              >
+                !
+              </span>
+            )}
+          </span>
+        );
+      },
     },
   ];
 

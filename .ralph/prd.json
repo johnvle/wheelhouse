@@ -461,7 +461,7 @@
     "phase": 4,
     "priority": 30,
     "tags": ["frontend", "prices"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-031",

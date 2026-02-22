@@ -19,6 +19,8 @@
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
 - Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
 - Prices: yfinance lazy import + in-memory dict cache with `time.time()` TTL; mock `_fetch_prices` in tests (not yfinance internals)
+- Prices hook: `usePrices(tickers)` with `refetchInterval: 60_000`; deduplicate tickers for stable query key
+- Price column: `accessorFn` for sort value from external map; `isPriceStale()` and `isNearStrike()` helpers
 - Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
 - Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
 - List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
@@ -724,4 +726,29 @@
   - `patch.object(module, "_fetch_prices")` is cleaner than mocking yfinance internals for testing the router
   - `autouse=True` fixture clearing `_price_cache` prevents test pollution from cached state
   - yfinance lazy import inside `_fetch_prices` avoids import-time slowdowns and makes testing easier
+---
+
+## 2026-02-22 - US-030
+- What was implemented:
+  - Created `src/types/price.ts` with `TickerPrice` and `PriceResponse` TypeScript interfaces matching backend schemas
+  - Added `getPrices()` API function to `src/lib/api.ts` that calls `GET /api/v1/prices?tickers=...`
+  - Created `usePrices` hook (`src/hooks/usePrices.ts`) with TanStack Query, `refetchInterval: 60_000` for 60-second polling, deduplicates tickers for stable query key
+  - Added "Current Price" column to `openPositionColumns` in `PositionsTable.tsx` showing live price and change % per ticker
+  - Stale price indicator: orange "!" appears when `last_fetched` is >5 minutes old (with tooltip)
+  - Price near strike highlights: yellow background + bold for CC where price >= strike * 0.95 and CSP where price <= strike * 1.05
+  - Updated `OpenPositions.tsx` to collect distinct tickers from open positions, call `usePrices`, and pass `priceMap` to column definitions
+  - TypeScript typecheck, Vite build, and all 179 backend tests pass
+- Files changed:
+  - `frontend/src/types/price.ts` (new — TickerPrice, PriceResponse interfaces)
+  - `frontend/src/lib/api.ts` (modified — added getPrices function and PriceResponse import)
+  - `frontend/src/hooks/usePrices.ts` (new — TanStack Query hook with 60s polling)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added Current Price column, isPriceStale, isNearStrike helpers, TickerPrice import)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated usePrices, priceMap, passed to columns)
+- **Learnings:**
+  - `usePrices` uses deduplicated, sorted ticker list as query key for stability across re-renders
+  - `accessorFn` on a TanStack Table column allows computing the sort value from external data (prices map)
+  - Price near strike threshold: 0.95 for CC (price above strike) and 1.05 for CSP (price below strike) — both are 5% thresholds
+  - `isPriceStale` compares `Date.now()` against parsed `last_fetched` timestamp — backend returns ISO datetime
+  - `refetchInterval: 60_000` in useQuery enables automatic polling every 60 seconds without manual setInterval
+  - Price column uses conditional styling: yellow bg for near-strike, orange "!" for stale, green/red for change %
 ---
