@@ -799,3 +799,26 @@
   - Reusing `PositionResponse.model_validate()` in the export endpoint leverages existing computed field logic (same as dashboard by-ticker)
   - Tags as `list[str]` need special serialization for CSV — semicolon separator avoids conflicts with CSV commas
 ---
+
+## 2026-02-22 - US-033
+- What was implemented:
+  - Added `exportPositionsCsv` function to `src/lib/api.ts` — fetches CSV as blob, extracts filename from Content-Disposition header, triggers browser download via programmatic `<a>` element
+  - Created `useExportCsv` hook (`src/hooks/useExportCsv.ts`) managing loading state for the export operation
+  - Added "Export CSV" button (variant="outline") to Open Positions page header alongside "Add Position" button
+  - Added "Export CSV" button to History page header, passes current page filters (status=CLOSED, ticker, date range) as query params
+  - Both buttons show "Exporting..." loading state while download is in progress and are disabled during export
+  - Downloaded filename extracted from backend's Content-Disposition header, with client-side fallback to `positions_YYYY-MM-DD.csv`
+  - 401 token refresh handling included in the export function (same pattern as apiFetch)
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/lib/api.ts` (modified — added exportPositionsCsv, triggerDownload, ExportFilters)
+  - `frontend/src/hooks/useExportCsv.ts` (new — export hook with loading state)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added Export CSV button)
+  - `frontend/src/pages/History.tsx` (modified — added Export CSV button with filters)
+- **Learnings:**
+  - CSV download can't use `apiFetch` (which parses JSON); needs direct `fetch` → `res.blob()` → `URL.createObjectURL` → programmatic `<a>` click
+  - `Content-Disposition` header filename extraction: `res.headers.get("Content-Disposition")?.match(/filename="?([^"]+)"?/)`
+  - `URL.revokeObjectURL(url)` after download prevents memory leaks from blob URLs
+  - Export filters differ from `PositionFilters` — backend export uses `start`/`end` (not `expiration_start`/`expiration_end`) and doesn't support `account_id`
+  - Simple `useState` hook is sufficient for export loading state — no need for TanStack Query `useMutation` since there's no cache invalidation or data return
+---

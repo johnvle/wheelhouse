@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useExportCsv } from "@/hooks/useExportCsv";
 import PositionsTable, {
   closedPositionColumns,
 } from "@/components/PositionsTable";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,6 +38,7 @@ export default function History() {
 
   const { data: positions, isLoading, error } = usePositions(filters);
   const { data: accounts } = useAccounts();
+  const { exportCsv, isExporting } = useExportCsv();
 
   const accountNames = useMemo(() => {
     if (!accounts) return {};
@@ -56,11 +59,27 @@ export default function History() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-2xl font-bold">History</h1>
-        <p className="text-muted-foreground mt-1">
-          Review your closed positions
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">History</h1>
+          <p className="text-muted-foreground mt-1">
+            Review your closed positions
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() =>
+            exportCsv({
+              status: "CLOSED",
+              ...(tickerSearch ? { ticker: tickerSearch.toUpperCase() } : {}),
+              ...(dateStart ? { start: dateStart } : {}),
+              ...(dateEnd ? { end: dateEnd } : {}),
+            })
+          }
+          disabled={isExporting}
+        >
+          {isExporting ? "Exporting..." : "Export CSV"}
+        </Button>
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">

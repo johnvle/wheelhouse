@@ -6,6 +6,7 @@ import { useAlerts } from "@/hooks/useAlerts";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
 import { useClosePosition } from "@/hooks/useClosePosition";
 import { useRollPosition } from "@/hooks/useRollPosition";
+import { useExportCsv } from "@/hooks/useExportCsv";
 import PositionsTable, {
   openPositionColumns,
 } from "@/components/PositionsTable";
@@ -23,6 +24,7 @@ export default function OpenPositions() {
   const createPosition = useCreatePosition();
   const closePositionMutation = useClosePosition();
   const rollPositionMutation = useRollPosition();
+  const { exportCsv, isExporting } = useExportCsv();
 
   // Collect distinct tickers from open positions for price fetching
   const tickers = useMemo(() => {
@@ -109,7 +111,16 @@ export default function OpenPositions() {
             Track your active option positions
           </p>
         </div>
-        <Button onClick={() => setAddDialogOpen(true)}>Add Position</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => exportCsv({ status: "OPEN" })}
+            disabled={isExporting}
+          >
+            {isExporting ? "Exporting..." : "Export CSV"}
+          </Button>
+          <Button onClick={() => setAddDialogOpen(true)}>Add Position</Button>
+        </div>
       </div>
 
       <div className="mt-4">
