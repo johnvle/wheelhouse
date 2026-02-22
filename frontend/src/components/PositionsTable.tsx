@@ -37,6 +37,7 @@ interface PositionsTableProps {
 interface OpenPositionColumnOptions {
   accountNames?: Record<string, string>;
   onClose?: (position: Position) => void;
+  onRoll?: (position: Position) => void;
 }
 
 export function openPositionColumns(
@@ -45,10 +46,12 @@ export function openPositionColumns(
   // Support both old signature (just accountNames) and new options object
   let accountNames: Record<string, string> | undefined;
   let onClose: ((position: Position) => void) | undefined;
+  let onRoll: ((position: Position) => void) | undefined;
 
   if (accountNamesOrOptions && "onClose" in accountNamesOrOptions) {
     accountNames = accountNamesOrOptions.accountNames;
     onClose = accountNamesOrOptions.onClose;
+    onRoll = accountNamesOrOptions.onRoll;
   } else {
     accountNames = accountNamesOrOptions as Record<string, string> | undefined;
   }
@@ -117,20 +120,34 @@ export function openPositionColumns(
     },
   ];
 
-  if (onClose) {
+  if (onClose || onRoll) {
     const closeFn = onClose;
+    const rollFn = onRoll;
     cols.push({
       id: "actions",
       header: "",
       enableSorting: false,
       cell: ({ row }) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => closeFn(row.original)}
-        >
-          Close
-        </Button>
+        <div className="flex gap-1">
+          {closeFn && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => closeFn(row.original)}
+            >
+              Close
+            </Button>
+          )}
+          {rollFn && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => rollFn(row.original)}
+            >
+              Roll
+            </Button>
+          )}
+        </div>
       ),
     });
   }

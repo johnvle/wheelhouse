@@ -3,13 +3,15 @@ import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
 import { useClosePosition } from "@/hooks/useClosePosition";
+import { useRollPosition } from "@/hooks/useRollPosition";
 import PositionsTable, {
   openPositionColumns,
 } from "@/components/PositionsTable";
 import AddPositionDialog from "@/components/AddPositionDialog";
 import ClosePositionDialog from "@/components/ClosePositionDialog";
+import RollPositionDialog from "@/components/RollPositionDialog";
 import { Button } from "@/components/ui/button";
-import type { PositionCreateBody, PositionCloseBody } from "@/lib/api";
+import type { PositionCreateBody, PositionCloseBody, PositionRollBody } from "@/lib/api";
 import type { Position } from "@/types/position";
 
 export default function OpenPositions() {
@@ -17,10 +19,13 @@ export default function OpenPositions() {
   const { data: accounts } = useAccounts();
   const createPosition = useCreatePosition();
   const closePositionMutation = useClosePosition();
+  const rollPositionMutation = useRollPosition();
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closingPosition, setClosingPosition] = useState<Position | null>(null);
+  const [rollDialogOpen, setRollDialogOpen] = useState(false);
+  const [rollingPosition, setRollingPosition] = useState<Position | null>(null);
 
   const accountNames = useMemo(() => {
     if (!accounts) return {};
@@ -34,6 +39,10 @@ export default function OpenPositions() {
         onClose: (position) => {
           setClosingPosition(position);
           setCloseDialogOpen(true);
+        },
+        onRoll: (position) => {
+          setRollingPosition(position);
+          setRollDialogOpen(true);
         },
       }),
     [accountNames]
@@ -54,6 +63,18 @@ export default function OpenPositions() {
         onSuccess: () => {
           setCloseDialogOpen(false);
           setClosingPosition(null);
+        },
+      }
+    );
+  }
+
+  function handleRollSubmit(id: string, body: PositionRollBody) {
+    rollPositionMutation.mutate(
+      { id, body },
+      {
+        onSuccess: () => {
+          setRollDialogOpen(false);
+          setRollingPosition(null);
         },
       }
     );
@@ -112,6 +133,19 @@ export default function OpenPositions() {
         onSubmit={handleCloseSubmit}
         submitting={closePositionMutation.isPending}
         error={closePositionMutation.error?.message ?? null}
+      />
+
+      <RollPositionDialog
+        open={rollDialogOpen}
+        onOpenChange={(open) => {
+          setRollDialogOpen(open);
+          if (!open) setRollingPosition(null);
+        }}
+        position={rollingPosition}
+        accounts={accounts ?? []}
+        onSubmit={handleRollSubmit}
+        submitting={rollPositionMutation.isPending}
+        error={rollPositionMutation.error?.message ?? null}
       />
     </div>
   );
