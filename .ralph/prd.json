@@ -227,7 +227,7 @@
     "phase": 1,
     "priority": 15,
     "tags": ["frontend", "setup"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-016",
@@ -242,7 +242,7 @@
     "phase": 1,
     "priority": 16,
     "tags": ["frontend", "setup"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-017",
@@ -257,7 +257,7 @@
     "phase": 1,
     "priority": 17,
     "tags": ["frontend", "setup"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-018",
@@ -272,7 +272,7 @@
     "phase": 1,
     "priority": 18,
     "tags": ["frontend", "auth"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-019",
@@ -287,7 +287,7 @@
     "phase": 1,
     "priority": 19,
     "tags": ["frontend", "auth"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-020",
@@ -302,7 +302,7 @@
     "phase": 1,
     "priority": 20,
     "tags": ["frontend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-021",
@@ -317,7 +317,7 @@
     "phase": 2,
     "priority": 21,
     "tags": ["frontend", "accounts"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-022",
@@ -333,7 +333,7 @@
     "phase": 2,
     "priority": 22,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-023",
