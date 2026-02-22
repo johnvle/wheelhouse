@@ -28,3 +28,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Project specs (local only)
+.ralph/
