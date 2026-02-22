@@ -1,4 +1,14 @@
 ## Codebase Patterns
+- By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
+- PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
+- Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
+- Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
+- Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
+- Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
+- List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
+- _FakeQuery: Add `.order_by()` method for mock chaining on list endpoints
+- Compound endpoints: Use nested Pydantic schemas (e.g., `PositionRoll` with `close` and `open` sub-objects) for multi-operation payloads
+- Atomicity: Single `db.commit()` after all mutations ensures both close + create happen in one transaction
 - Config: Use pydantic-settings with `get_settings()` + `@lru_cache` for lazy loading
 - Database: `app/database.py` has `Base`, `SessionLocal`, `get_db()` dependency
 - Alembic: env.py imports `get_settings()` and `Base` from app modules
@@ -26,6 +36,13 @@
 - Schemas: `from_attributes=True` enables ORM model → Pydantic response via `model_validate(orm_obj)`
 - Schemas: Enums are `str, Enum` subclasses for JSON serialization and string comparison
 - Schemas: Access `model_fields` on the class, not the instance (Pydantic v2.11 deprecation)
+- Routers: `app/routers/` with APIRouter, prefix `/api/v1/<resource>`, wired via `app.include_router()` in main.py
+- Router tests: Use `app.dependency_overrides[get_db]` to inject mock DB session; clear in `finally` block
+- Router tests: `_FakeQuery` helper class chains `.filter().all()` / `.filter().first()` for mock DB queries
+- Router tests: Use `_make_account()` / `_make_token()` helpers for test fixtures
+- Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
+- PATCH pattern: `model_dump(exclude_unset=True)` + `setattr` loop; handle `.value`/`.upper()` in the loop
+- Mock query sequencing: `mock_db.query.side_effect = [query1, query2]` for multiple distinct queries in one endpoint
 
 ---
 
@@ -160,4 +177,184 @@
   - `from_attributes=True` in model_config enables `ModelClass.model_validate(orm_object)` for ORM → Pydantic conversion
   - `model_fields` should be accessed on the class not instance (deprecated in Pydantic v2.11)
   - Computed fields for annualized_roc need zero-guard on both collateral and days_in_trade
+---
+
+## 2026-02-22 - US-007
+- What was implemented:
+  - Created `app/routers/accounts.py` with 3 CRUD endpoints:
+    - `GET /api/v1/accounts` — lists authenticated user's accounts
+    - `POST /api/v1/accounts` — creates account with name, broker, optional tax_treatment (returns 201)
+    - `PATCH /api/v1/accounts/{id}` — updates account fields; returns 404 if not found or belongs to another user
+  - All endpoints use `get_current_user` dependency to scope queries by `user_id`
+  - All responses use `AccountResponse` schema with `from_attributes=True` for ORM → Pydantic conversion
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_accounts.py` with 13 tests covering: list (2), auth (1), create (4), update (5), schema validation (1)
+  - Tests use `dependency_overrides[get_db]` with mock DB session (no live DB needed)
+- Files changed:
+  - `backend/app/routers/accounts.py` (new)
+  - `backend/app/main.py` (modified — added router import and include)
+  - `backend/tests/test_accounts.py` (new)
+- **Learnings:**
+  - `app.dependency_overrides[get_db]` is the standard FastAPI testing pattern to inject mock DB without real connections
+  - Broker enum `.value` must be extracted when setting on ORM model to store the raw string
+  - `exclude_unset=True` in `model_dump()` is critical for PATCH — only applies fields the client actually sent
+  - Filter by both `Account.id == account_id` and `Account.user_id == user_id` in a single query ensures user isolation and returns 404 for other users' accounts
+---
+
+## 2026-02-22 - US-008
+- What was implemented:
+  - Created `app/routers/positions.py` with `POST /api/v1/positions` endpoint
+  - Validates `account_id` belongs to authenticated user (returns 400 if not)
+  - Uppercases `ticker` before storage
+  - Creates position with all required fields + optional fields (multiplier, open_fees, notes, tags)
+  - Returns `PositionResponse` with computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc)
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_positions.py` with 9 tests covering: success, ticker uppercase, invalid account (400), optional fields, auth required (401), missing fields (422), invalid type (422), computed fields verification, CASH_SECURED_PUT type
+- Files changed:
+  - `backend/app/routers/positions.py` (new)
+  - `backend/app/main.py` (modified — added positions router)
+  - `backend/tests/test_positions.py` (new)
+- **Learnings:**
+  - Account ownership validation for positions uses same `_FakeQuery` pattern but returns 400 (not 404) since it's a validation error on the request body
+  - `body.type.value` extracts the enum string value for storage in the ORM model (same pattern as Broker enum)
+  - `body.ticker.upper()` handles ticker uppercasing at the router level, not schema level
+  - Mock `db.refresh()` side_effect must set all fields the ORM object would have after DB round-trip, including server defaults (status, close_fees, etc.)
+---
+
+## 2026-02-22 - US-009
+- What was implemented:
+  - Added `GET /api/v1/positions` endpoint to `app/routers/positions.py` with filtering and sorting
+  - Supports query params: status, ticker, type, account_id, expiration_start, expiration_end, sort, order (asc/desc)
+  - Default sort is `open_date` descending
+  - Ticker filter is case-insensitive (uppercased before comparison)
+  - Invalid sort columns fall back to `open_date`
+  - Returns empty list (not error) when no positions match
+  - Each position includes computed fields via `PositionResponse`
+  - Added 11 tests covering: list (2), filters (status, ticker, type, account_id, expiration range), sorting (2), computed fields, auth
+  - Updated `_FakeQuery` to support `.order_by()` chaining
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added GET endpoint, imports, SORTABLE_COLUMNS)
+  - `backend/tests/test_positions.py` (modified — added 11 GET tests, updated _FakeQuery)
+- **Learnings:**
+  - `Optional` query params with `Query(None)` cleanly handle optional filters — only add `.filter()` when param is not None
+  - `getattr(Position, sort_col_name)` dynamically resolves ORM columns for sorting; validate against a whitelist to prevent injection
+  - Enum query params (PositionStatus, PositionType) are auto-validated by FastAPI; use `.value` to compare against DB strings
+  - `_FakeQuery.order_by()` just returns `self` since mock doesn't need real sorting — tests verify the endpoint accepts sort params without error
+---
+
+## 2026-02-22 - US-010
+- What was implemented:
+  - Added `PATCH /api/v1/positions/{id}` endpoint to `app/routers/positions.py`
+  - Updates any subset of editable fields via `PositionUpdate` schema (excludes `user_id`, `status`, `outcome`)
+  - Returns 404 if position doesn't exist or belongs to another user
+  - Cannot change `user_id` (field not in `PositionUpdate` schema, so it's silently ignored)
+  - Ticker is uppercased if provided; type enum stored as `.value` string
+  - Validates new `account_id` belongs to user if provided (returns 400 if not)
+  - `updated_at` refreshed via `db.commit()` + `db.refresh()` (server-side default)
+  - Response includes recalculated computed fields
+  - Added 11 tests covering: success, not found, other user's position, cannot change user_id, ticker uppercase, type enum storage, invalid account_id, updated_at refresh, computed fields, auth required, exclude_unset behavior
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added PATCH endpoint, imported PositionUpdate)
+  - `backend/tests/test_positions.py` (modified — added 11 PATCH tests)
+- **Learnings:**
+  - `model_dump(exclude_unset=True)` is critical for PATCH — only applies fields the client actually sent, preserving other fields
+  - When an endpoint makes multiple different `db.query()` calls (e.g., Position lookup then Account validation), use `mock_db.query.side_effect = [query1, query2]` instead of `return_value`
+  - Enum and ticker transformations (`.value`, `.upper()`) should happen in the `setattr` loop to handle both create and update consistently
+  - `PositionUpdate` schema excluding `user_id` is the cleanest way to enforce "cannot change user_id" — no explicit validation needed
+---
+
+## 2026-02-22 - US-011
+- What was implemented:
+  - Added `PositionClose` Pydantic schema with `outcome` (Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]), `close_date`, optional `close_price_per_share`, optional `close_fees`
+  - Added `POST /api/v1/positions/{id}/close` endpoint to `app/routers/positions.py`
+  - Endpoint looks up position by id + user_id, returns 404 if not found
+  - Returns 400 if position is already CLOSED
+  - Sets status to CLOSED, outcome, close_date, and optional close_price_per_share/close_fees
+  - Response includes recalculated computed fields (premium_net reflects close_fees)
+  - Added 10 tests covering: success, ASSIGNED outcome, CLOSED_EARLY with close_price/fees, already closed (400), not found (404), other user (404), invalid outcome ROLLED (422), computed fields verification, auth required (401), missing required fields (422)
+- Files changed:
+  - `backend/app/schemas/position.py` (modified — added PositionClose)
+  - `backend/app/schemas/__init__.py` (modified — added PositionClose export)
+  - `backend/app/routers/positions.py` (modified — added close endpoint, imported PositionClose)
+  - `backend/tests/test_positions.py` (modified — added 10 close tests)
+- **Learnings:**
+  - `Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]` in Pydantic schema is cleaner than a separate enum for subset validation — gives automatic 422 for ROLLED
+  - Action endpoints (close, roll) use `POST /{id}/action` pattern vs `PATCH /{id}` for updates
+  - Check `position.status == "CLOSED"` before mutating to return 400 for already-closed positions
+  - Optional close fields (`close_price_per_share`, `close_fees`) only set when provided (not None) to avoid overwriting defaults
+---
+
+## 2026-02-22 - US-012
+- What was implemented:
+  - Added `PositionRollClose`, `PositionRoll`, and `PositionRollResponse` Pydantic schemas to `app/schemas/position.py`
+  - `PositionRoll` uses nested schemas: `close` (PositionRollClose) and `open` (PositionCreate) for the two-part payload
+  - `PositionRollResponse` returns both `closed` and `opened` PositionResponse objects
+  - Added `POST /api/v1/positions/{id}/roll` endpoint to `app/routers/positions.py`
+  - Endpoint: looks up position (404 if not found), checks not already closed (400), validates new account_id (400), generates shared `roll_group_id`, closes old position with outcome=ROLLED, creates new position, single `db.commit()` for atomicity
+  - Returns both closed and opened positions with computed fields
+  - Updated `app/schemas/__init__.py` to export new schemas
+  - Added 11 tests covering: success, close_price/fees, not found (404), other user (404), already closed (400), invalid account (400), atomic transaction, ticker uppercase, computed fields, auth required (401), missing fields (422)
+- Files changed:
+  - `backend/app/schemas/position.py` (modified — added PositionRollClose, PositionRoll, PositionRollResponse)
+  - `backend/app/schemas/__init__.py` (modified — added new exports)
+  - `backend/app/routers/positions.py` (modified — added roll endpoint, imported new schemas + uuid4)
+  - `backend/tests/test_positions.py` (modified — added 11 roll tests)
+- **Learnings:**
+  - Nested Pydantic schemas (close + open sub-objects) cleanly model compound operations like roll
+  - Reusing `PositionCreate` as the `open` field type in `PositionRoll` avoids duplicating validation logic
+  - Single `db.commit()` after both close mutation and `db.add(new_position)` ensures atomicity without explicit transaction management
+  - `mock_db.query.side_effect = [position_query, account_query]` handles the two sequential queries (Position lookup then Account validation)
+  - `fake_refresh` with a counter (`refresh_call_count`) differentiates between refreshing the closed position vs the new position
+  - Outcome is hardcoded to "ROLLED" in the endpoint (not sent by client), unlike the close endpoint which accepts outcome from the client
+---
+
+## 2026-02-22 - US-013
+- What was implemented:
+  - Created `app/schemas/dashboard.py` with `DashboardSummaryResponse` schema (total_premium_collected, premium_mtd, open_position_count, upcoming_expirations)
+  - Created `app/routers/dashboard.py` with `GET /api/v1/dashboard/summary` endpoint
+  - Supports optional `start`/`end` date query params to scope total_premium_collected by open_date
+  - `total_premium_collected`: premium_net for closed positions + premium_total for open
+  - `premium_mtd`: same calculation filtered to current month
+  - `open_position_count`: count of OPEN positions (not date-scoped)
+  - `upcoming_expirations`: OPEN positions expiring within 7 days, returned as full PositionResponse objects with computed fields
+  - Returns zeroes and empty list when no data exists
+  - Wired router into `app/main.py`
+  - Updated `app/schemas/__init__.py` with `DashboardSummaryResponse` export
+  - Created `tests/test_dashboard.py` with 9 tests covering: no data (zeroes), mixed open/closed, MTD scoping, upcoming expirations 7-day cutoff, date range params, closed premium_net, open premium_total, auth required, computed fields in upcoming expirations
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (new)
+  - `backend/app/routers/dashboard.py` (new)
+  - `backend/app/main.py` (modified — added dashboard router)
+  - `backend/app/schemas/__init__.py` (modified — added DashboardSummaryResponse)
+  - `backend/tests/test_dashboard.py` (new)
+- **Learnings:**
+  - Dashboard endpoint uses two separate DB queries: one for date-scoped positions (all statuses) and one for open positions
+  - Premium calculation varies by status: closed uses premium_net (total - fees), open uses premium_total (fees unknown yet)
+  - MTD filtering is done in Python from the already-fetched positions, not as a separate query
+  - `mock_db.query.side_effect = [all_query, open_query]` handles the two sequential queries in the endpoint
+  - `upcoming_expirations` returns full PositionResponse objects (with computed fields), not a simple count
+---
+
+## 2026-02-22 - US-014
+- What was implemented:
+  - Added `TickerSummary` Pydantic schema to `app/schemas/dashboard.py` with fields: ticker, total_premium, trade_count, avg_annualized_roc
+  - Added `GET /api/v1/dashboard/by-ticker` endpoint to `app/routers/dashboard.py`
+  - Supports optional `start`/`end` date query params to scope by open_date
+  - Groups positions by ticker using `defaultdict(list)`
+  - Computes total_premium using same `_compute_premium()` helper (closed → premium_net, open → premium_total)
+  - Computes avg_annualized_roc by validating each position through `PositionResponse.model_validate()` to leverage computed fields
+  - Results sorted by total_premium descending
+  - Returns empty list when no positions exist
+  - Updated `app/schemas/__init__.py` to export `TickerSummary`
+  - Added 7 tests covering: empty data, grouping, sorting, date range, avg_annualized_roc, premium calculation (open vs closed), auth required
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (modified — added TickerSummary)
+  - `backend/app/routers/dashboard.py` (modified — added by-ticker endpoint, new imports)
+  - `backend/app/schemas/__init__.py` (modified — added TickerSummary export)
+  - `backend/tests/test_dashboard.py` (modified — added 7 by-ticker tests)
+- **Learnings:**
+  - `PositionResponse.model_validate(orm_mock)` reuses computed fields (annualized_roc) without reimplementing the calculation
+  - `defaultdict(list)` is cleaner than manual grouping for Python-side aggregation
+  - By-ticker endpoint uses a single DB query (unlike summary which uses two) since it doesn't need separate open-position queries
+  - `mock_db.query.return_value` (not `side_effect`) works for single-query endpoints
 ---

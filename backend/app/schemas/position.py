@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -42,6 +42,30 @@ class PositionUpdate(BaseModel):
     close_price_per_share: Optional[Decimal] = None
     notes: Optional[str] = None
     tags: Optional[list[str]] = None
+
+
+class PositionClose(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    outcome: Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]
+    close_date: date
+    close_price_per_share: Optional[Decimal] = None
+    close_fees: Optional[Decimal] = None
+
+
+class PositionRollClose(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close_date: date
+    close_price_per_share: Optional[Decimal] = None
+    close_fees: Optional[Decimal] = None
+
+
+class PositionRoll(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close: PositionRollClose
+    open: PositionCreate
 
 
 class PositionResponse(BaseModel):
@@ -109,3 +133,8 @@ class PositionResponse(BaseModel):
         if days_in_trade <= 0:
             return Decimal("0")
         return self.roc_period * Decimal(365) / Decimal(days_in_trade)
+
+
+class PositionRollResponse(BaseModel):
+    closed: PositionResponse
+    opened: PositionResponse

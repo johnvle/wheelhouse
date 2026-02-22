@@ -101,7 +101,7 @@
     "phase": 1,
     "priority": 7,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-008",
@@ -117,7 +117,7 @@
     "phase": 1,
     "priority": 8,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-009",
@@ -133,7 +133,7 @@
     "phase": 1,
     "priority": 9,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-010",
@@ -149,7 +149,7 @@
     "phase": 1,
     "priority": 10,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-011",
@@ -165,7 +165,7 @@
     "phase": 2,
     "priority": 11,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-012",
@@ -182,7 +182,7 @@
     "phase": 2,
     "priority": 12,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-013",
@@ -197,7 +197,7 @@
     "phase": 3,
     "priority": 13,
     "tags": ["backend", "api", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-014",
@@ -212,7 +212,7 @@
     "phase": 3,
     "priority": 14,
     "tags": ["backend", "api", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-015",
