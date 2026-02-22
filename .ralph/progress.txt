@@ -26,6 +26,11 @@
 - Schemas: `from_attributes=True` enables ORM model → Pydantic response via `model_validate(orm_obj)`
 - Schemas: Enums are `str, Enum` subclasses for JSON serialization and string comparison
 - Schemas: Access `model_fields` on the class, not the instance (Pydantic v2.11 deprecation)
+- Routers: `app/routers/` with APIRouter, prefix `/api/v1/<resource>`, wired via `app.include_router()` in main.py
+- Router tests: Use `app.dependency_overrides[get_db]` to inject mock DB session; clear in `finally` block
+- Router tests: `_FakeQuery` helper class chains `.filter().all()` / `.filter().first()` for mock DB queries
+- Router tests: Use `_make_account()` / `_make_token()` helpers for test fixtures
+- Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
 
 ---
 
@@ -160,4 +165,26 @@
   - `from_attributes=True` in model_config enables `ModelClass.model_validate(orm_object)` for ORM → Pydantic conversion
   - `model_fields` should be accessed on the class not instance (deprecated in Pydantic v2.11)
   - Computed fields for annualized_roc need zero-guard on both collateral and days_in_trade
+---
+
+## 2026-02-22 - US-007
+- What was implemented:
+  - Created `app/routers/accounts.py` with 3 CRUD endpoints:
+    - `GET /api/v1/accounts` — lists authenticated user's accounts
+    - `POST /api/v1/accounts` — creates account with name, broker, optional tax_treatment (returns 201)
+    - `PATCH /api/v1/accounts/{id}` — updates account fields; returns 404 if not found or belongs to another user
+  - All endpoints use `get_current_user` dependency to scope queries by `user_id`
+  - All responses use `AccountResponse` schema with `from_attributes=True` for ORM → Pydantic conversion
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_accounts.py` with 13 tests covering: list (2), auth (1), create (4), update (5), schema validation (1)
+  - Tests use `dependency_overrides[get_db]` with mock DB session (no live DB needed)
+- Files changed:
+  - `backend/app/routers/accounts.py` (new)
+  - `backend/app/main.py` (modified — added router import and include)
+  - `backend/tests/test_accounts.py` (new)
+- **Learnings:**
+  - `app.dependency_overrides[get_db]` is the standard FastAPI testing pattern to inject mock DB without real connections
+  - Broker enum `.value` must be extracted when setting on ORM model to store the raw string
+  - `exclude_unset=True` in `model_dump()` is critical for PATCH — only applies fields the client actually sent
+  - Filter by both `Account.id == account_id` and `Account.user_id == user_id` in a single query ensures user isolation and returns 404 for other users' accounts
 ---
