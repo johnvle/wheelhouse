@@ -25,3 +25,5 @@
 - **Router tests**: Use `dependency_overrides[get_db]` with mock DB; `_FakeQuery` for chaining `.filter().first()`/`.all()`
 - **Enum storage**: Use `.value` when setting enum fields on ORM models (e.g., `body.type.value`)
 - **Account ownership**: Validate `account_id` belongs to user before creating positions (return 400 if not)
+- **PATCH endpoints**: Use `model_dump(exclude_unset=True)` to only update sent fields; handle enum `.value` and ticker `.upper()` in the update loop
+- **Mock query sequencing**: Use `mock_db.query.side_effect = [query1, query2]` when endpoint makes multiple different query() calls (e.g., Position lookup then Account validation)

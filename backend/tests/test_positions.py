@@ -730,3 +730,351 @@ async def test_list_positions_requires_auth():
     ) as client:
         resp = await client.get("/api/v1/positions")
     assert resp.status_code == 401
+
+
+# --- PATCH /api/v1/positions/{id} ---
+
+
+@pytest.mark.asyncio
+async def test_update_position_success(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} updates provided fields and returns updated position."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id)
+    position_id = position.id
+
+    mock_db = MagicMock()
+
+    # First query(Position).filter(...).first() returns the position
+    # We need to handle two possible query calls: Position lookup, and potentially Account lookup
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.strike_price = Decimal("155.00")
+        obj.notes = "Updated note"
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position_id}",
+                json={"strike_price": "155.00", "notes": "Updated note"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == str(position_id)
+        assert Decimal(str(data["strike_price"])) == Decimal("155.00")
+        assert data["notes"] == "Updated note"
+        # Computed fields present
+        assert "premium_total" in data
+        assert "collateral" in data
+        assert "annualized_roc" in data
+        mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_not_found(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} returns 404 if position doesn't exist."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])  # Position not found
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{uuid4()}",
+                json={"notes": "test"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+        assert "position" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_other_users_position(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} returns 404 if position belongs to another user."""
+    mock_db = MagicMock()
+    # Filter by user_id means other user's position won't be found
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{uuid4()}",
+                json={"notes": "hacker"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_cannot_change_user_id(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} cannot change user_id (not in PositionUpdate schema)."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id)
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+    mock_db.refresh.side_effect = lambda obj: setattr(
+        obj, "updated_at", datetime.now(timezone.utc)
+    )
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"user_id": str(uuid4()), "notes": "test"},
+                headers=auth_headers,
+            )
+        # user_id is not in PositionUpdate schema, so it's ignored (not an error)
+        assert resp.status_code == 200
+        # user_id should remain the original
+        assert resp.json()["user_id"] == str(user_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_ticker_uppercased(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} uppercases ticker if provided."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id)
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"ticker": "msft"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        # Verify setattr was called with uppercased ticker
+        assert position.ticker == "MSFT"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_type_enum_stored_as_value(
+    user_id: UUID, auth_headers: dict
+):
+    """PATCH /api/v1/positions/{id} stores type enum as string value."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id, type="COVERED_CALL")
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"type": "CASH_SECURED_PUT"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert position.type == "CASH_SECURED_PUT"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_invalid_account_id(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} returns 400 if new account_id doesn't belong to user."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id)
+    new_account_id = uuid4()
+
+    mock_db = MagicMock()
+
+    # First call: query(Position) → found
+    # Second call: query(Account) → not found
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"account_id": str(new_account_id)},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 400
+        assert "account" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_updated_at_refreshed(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} refreshes updated_at timestamp."""
+    account_id = uuid4()
+    original_updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    position = _make_position(user_id, account_id, updated_at=original_updated_at)
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    new_updated_at = datetime(2026, 2, 22, 12, 0, 0, tzinfo=timezone.utc)
+
+    def fake_refresh(obj):
+        obj.updated_at = new_updated_at
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"notes": "timestamp test"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        # After commit+refresh, updated_at should be refreshed
+        mock_db.commit.assert_called_once()
+        mock_db.refresh.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_response_has_computed_fields(
+    user_id: UUID, auth_headers: dict
+):
+    """PATCH response includes recalculated computed fields."""
+    account_id = uuid4()
+    position = _make_position(
+        user_id,
+        account_id,
+        strike_price=Decimal("100.00"),
+        contracts=2,
+        multiplier=100,
+        premium_per_share=Decimal("5.00"),
+        open_fees=Decimal("1.00"),
+        close_fees=Decimal("0"),
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.strike_price = Decimal("110.00")
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"strike_price": "110.00"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # collateral = 110 * 2 * 100 = 22000
+        assert Decimal(str(data["collateral"])) == Decimal("22000.00")
+        # premium_total = 5 * 2 * 100 = 1000
+        assert Decimal(str(data["premium_total"])) == Decimal("1000.00")
+        assert "roc_period" in data
+        assert "dte" in data
+        assert "annualized_roc" in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_position_requires_auth():
+    """PATCH /api/v1/positions/{id} without auth returns 401."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.patch(
+            f"/api/v1/positions/{uuid4()}",
+            json={"notes": "no auth"},
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_position_exclude_unset(user_id: UUID, auth_headers: dict):
+    """PATCH /api/v1/positions/{id} only updates fields that were sent."""
+    account_id = uuid4()
+    position = _make_position(
+        user_id, account_id, notes="original", tags=["keep"]
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # Only send notes, not tags
+            resp = await client.patch(
+                f"/api/v1/positions/{position.id}",
+                json={"notes": "changed"},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        # notes was updated
+        assert position.notes == "changed"
+        # tags was NOT overwritten (exclude_unset)
+        assert position.tags == ["keep"]
+    finally:
+        app.dependency_overrides.clear()

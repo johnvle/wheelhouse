@@ -149,7 +149,7 @@
     "phase": 1,
     "priority": 10,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-011",

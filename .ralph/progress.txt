@@ -33,6 +33,8 @@
 - Router tests: `_FakeQuery` helper class chains `.filter().all()` / `.filter().first()` for mock DB queries
 - Router tests: Use `_make_account()` / `_make_token()` helpers for test fixtures
 - Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
+- PATCH pattern: `model_dump(exclude_unset=True)` + `setattr` loop; handle `.value`/`.upper()` in the loop
+- Mock query sequencing: `mock_db.query.side_effect = [query1, query2]` for multiple distinct queries in one endpoint
 
 ---
 
@@ -230,4 +232,25 @@
   - `getattr(Position, sort_col_name)` dynamically resolves ORM columns for sorting; validate against a whitelist to prevent injection
   - Enum query params (PositionStatus, PositionType) are auto-validated by FastAPI; use `.value` to compare against DB strings
   - `_FakeQuery.order_by()` just returns `self` since mock doesn't need real sorting — tests verify the endpoint accepts sort params without error
+---
+
+## 2026-02-22 - US-010
+- What was implemented:
+  - Added `PATCH /api/v1/positions/{id}` endpoint to `app/routers/positions.py`
+  - Updates any subset of editable fields via `PositionUpdate` schema (excludes `user_id`, `status`, `outcome`)
+  - Returns 404 if position doesn't exist or belongs to another user
+  - Cannot change `user_id` (field not in `PositionUpdate` schema, so it's silently ignored)
+  - Ticker is uppercased if provided; type enum stored as `.value` string
+  - Validates new `account_id` belongs to user if provided (returns 400 if not)
+  - `updated_at` refreshed via `db.commit()` + `db.refresh()` (server-side default)
+  - Response includes recalculated computed fields
+  - Added 11 tests covering: success, not found, other user's position, cannot change user_id, ticker uppercase, type enum storage, invalid account_id, updated_at refresh, computed fields, auth required, exclude_unset behavior
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added PATCH endpoint, imported PositionUpdate)
+  - `backend/tests/test_positions.py` (modified — added 11 PATCH tests)
+- **Learnings:**
+  - `model_dump(exclude_unset=True)` is critical for PATCH — only applies fields the client actually sent, preserving other fields
+  - When an endpoint makes multiple different `db.query()` calls (e.g., Position lookup then Account validation), use `mock_db.query.side_effect = [query1, query2]` instead of `return_value`
+  - Enum and ticker transformations (`.value`, `.upper()`) should happen in the `setattr` loop to handle both create and update consistently
+  - `PositionUpdate` schema excluding `user_id` is the cleanest way to enforce "cannot change user_id" — no explicit validation needed
 ---
