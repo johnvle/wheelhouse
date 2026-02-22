@@ -38,7 +38,7 @@ export default function History() {
 
   const { data: positions, isLoading, error } = usePositions(filters);
   const { data: accounts } = useAccounts();
-  const { exportCsv, isExporting } = useExportCsv();
+  const { exportCsv, isExporting, error: exportError } = useExportCsv();
 
   const accountNames = useMemo(() => {
     if (!accounts) return {};
@@ -81,6 +81,10 @@ export default function History() {
           {isExporting ? "Exporting..." : "Export CSV"}
         </Button>
       </div>
+
+      {exportError && (
+        <p className="text-sm text-destructive mt-2">{exportError}</p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="w-40">
@@ -170,7 +174,7 @@ export default function History() {
         )}
         {error && (
           <p className="text-sm text-destructive">
-            Failed to load positions
+            Failed to load positions: {error.message}
           </p>
         )}
         {filteredPositions.length === 0 && !isLoading && !error && (

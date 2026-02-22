@@ -56,6 +56,7 @@ export default function AlertBanner({
               {alert.message}
             </span>
             <button
+              type="button"
               className="ml-4 text-muted-foreground hover:text-foreground"
               onClick={() => onDismiss(alert.id)}
               aria-label="Dismiss alert"

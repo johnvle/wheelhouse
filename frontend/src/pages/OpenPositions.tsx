@@ -49,7 +49,7 @@ export default function OpenPositions() {
   const createPosition = useCreatePosition();
   const closePositionMutation = useClosePosition();
   const rollPositionMutation = useRollPosition();
-  const { exportCsv, isExporting } = useExportCsv();
+  const { exportCsv, isExporting, error: exportError } = useExportCsv();
 
   // Collect distinct tickers from open positions for price fetching
   const tickers = useMemo(() => {
@@ -150,6 +150,10 @@ export default function OpenPositions() {
         </div>
       </div>
 
+      {exportError && (
+        <p className="text-sm text-destructive mt-2">{exportError}</p>
+      )}
+
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="w-40">
           <label className="text-sm font-medium mb-1 block">Ticker</label>
@@ -221,7 +225,9 @@ export default function OpenPositions() {
           <p className="text-muted-foreground">Loading positions...</p>
         )}
         {error && (
-          <p className="text-sm text-destructive">Failed to load positions</p>
+          <p className="text-sm text-destructive">
+            Failed to load positions: {error.message}
+          </p>
         )}
         {positions && positions.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center rounded-md border border-dashed py-12">
