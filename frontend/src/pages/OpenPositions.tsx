@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
 import { usePrices } from "@/hooks/usePrices";
+import { useAlerts } from "@/hooks/useAlerts";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
 import { useClosePosition } from "@/hooks/useClosePosition";
 import { useRollPosition } from "@/hooks/useRollPosition";
@@ -11,6 +12,7 @@ import PositionsTable, {
 import AddPositionDialog from "@/components/AddPositionDialog";
 import ClosePositionDialog from "@/components/ClosePositionDialog";
 import RollPositionDialog from "@/components/RollPositionDialog";
+import AlertBanner from "@/components/AlertBanner";
 import { Button } from "@/components/ui/button";
 import type { PositionCreateBody, PositionCloseBody, PositionRollBody } from "@/lib/api";
 import type { Position } from "@/types/position";
@@ -35,6 +37,8 @@ export default function OpenPositions() {
     if (!priceData?.prices) return {};
     return Object.fromEntries(priceData.prices.map((p) => [p.ticker, p]));
   }, [priceData]);
+
+  const { alerts, dismiss, dismissAll } = useAlerts(positions, priceMap);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
@@ -106,6 +110,10 @@ export default function OpenPositions() {
           </p>
         </div>
         <Button onClick={() => setAddDialogOpen(true)}>Add Position</Button>
+      </div>
+
+      <div className="mt-4">
+        <AlertBanner alerts={alerts} onDismiss={dismiss} onDismissAll={dismissAll} />
       </div>
 
       <div className="mt-6">

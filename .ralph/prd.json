@@ -478,7 +478,7 @@
     "phase": 4,
     "priority": 31,
     "tags": ["frontend", "alerts"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-032",
