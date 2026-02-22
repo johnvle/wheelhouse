@@ -1,20 +1,28 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { BrowserRouter, Routes, Route } from "react-router";
+import AuthGuard from "@/components/AuthGuard";
+import Layout from "@/components/Layout";
+import OpenPositions from "@/pages/OpenPositions";
+import History from "@/pages/History";
+import Dashboard from "@/pages/Dashboard";
+import Settings from "@/pages/Settings";
+import Login from "@/pages/Login";
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <h1 className="text-3xl font-bold">Wheelhouse</h1>
-        <p className="text-muted-foreground">Options tracking dashboard</p>
-        <Button onClick={() => setCount((c) => c + 1)}>
-          Count is {count}
-        </Button>
-      </div>
-    </div>
-  )
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route element={<AuthGuard />}>
+          <Route element={<Layout />}>
+            <Route index element={<OpenPositions />} />
+            <Route path="history" element={<History />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;

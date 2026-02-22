@@ -7,6 +7,10 @@
 - Frontend types: `src/types/` for shared TypeScript interfaces matching backend schemas
 - Frontend hooks: `src/hooks/` for TanStack Query hooks (e.g., `usePositions`)
 - TanStack Query: `QueryClientProvider` wraps App in `main.tsx`; `ReactQueryDevtools` added for dev
+- Routing: React Router v7 from `react-router` package; `BrowserRouter` + `Routes` + `Route` in `App.tsx`
+- Layout: Nested `<Route element={<Layout />}>` with `<Outlet />` for shared sidebar; `NavLink` for active state
+- Auth guard: `<Route element={<AuthGuard />}>` wraps authenticated routes; redirects to `/login` via `<Navigate />`
+- Pages: `src/pages/` for route components; `src/components/` for shared UI (Layout, AuthGuard)
 - By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
 - PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
@@ -414,4 +418,32 @@
   - Position types use `number` for backend `Decimal` fields (JSON serializes as number)
   - `useQuery` generic parameter `useQuery<Position[]>` provides return type inference
   - `VITE_API_URL` env var used for API base URL with fallback to localhost:8000
+---
+
+## 2026-02-22 - US-017
+- What was implemented:
+  - Installed `react-router` (v7) for client-side routing
+  - Created route configuration in `App.tsx`: `/login` (public), `/` (Open Positions), `/history`, `/dashboard`, `/settings` (all authenticated)
+  - Created `Layout` component with persistent sidebar nav using `NavLink` for active state highlighting
+  - Created `AuthGuard` component that wraps authenticated routes and redirects to `/login` when no user
+  - Created placeholder page components: `OpenPositions`, `History`, `Dashboard`, `Settings`, `Login`
+  - Created `useAuth` hook (stub) returning a dev user — to be replaced by Supabase auth in US-018
+  - Layout uses nested `<Route>` + `<Outlet>` pattern for shared sidebar across authenticated pages
+- Files changed:
+  - `frontend/package.json` (modified — added react-router)
+  - `frontend/src/App.tsx` (rewritten — router configuration)
+  - `frontend/src/components/Layout.tsx` (new — sidebar nav + content outlet)
+  - `frontend/src/components/AuthGuard.tsx` (new — auth guard with redirect)
+  - `frontend/src/hooks/useAuth.ts` (new — auth stub)
+  - `frontend/src/pages/OpenPositions.tsx` (new — placeholder)
+  - `frontend/src/pages/History.tsx` (new — placeholder)
+  - `frontend/src/pages/Dashboard.tsx` (new — placeholder)
+  - `frontend/src/pages/Settings.tsx` (new — placeholder)
+  - `frontend/src/pages/Login.tsx` (new — placeholder)
+- **Learnings:**
+  - React Router v7 uses `react-router` package (not `react-router-dom`); `BrowserRouter`, `Routes`, `Route` all from `react-router`
+  - `NavLink` with `className` callback `({ isActive }) => ...` provides active state styling
+  - Nested `<Route element={<AuthGuard />}>` with `<Outlet />` cleanly wraps all authenticated routes
+  - `end` prop on NavLink for `/` index route prevents it from matching all paths
+  - Layout route pattern: `<Route element={<Layout />}>` → child routes render inside Layout's `<Outlet />`
 ---
