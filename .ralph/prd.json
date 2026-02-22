@@ -10,36 +10,42 @@
     ],
     "phase": 1,
     "priority": 1,
-    "tags": ["backend", "infra"],
-    "passes": true
+    "tags": [
+      "backend",
+      "infra"
+    ]
   },
   {
     "id": "US-002",
     "title": "Alembic migration for accounts table",
     "description": "As a developer, I want an Alembic migration that creates the `accounts` table so that users can store brokerage account metadata.",
     "acceptance_criteria": [
-      "Migration creates `accounts` table with columns: id (uuid PK), user_id (uuid FK → auth.users.id NOT NULL), name (text NOT NULL), broker (text NOT NULL), tax_treatment (text nullable), created_at (timestamptz), updated_at (timestamptz)",
+      "Migration creates `accounts` table with columns: id (uuid PK), user_id (uuid FK \u2192 auth.users.id NOT NULL), name (text NOT NULL), broker (text NOT NULL), tax_treatment (text nullable), created_at (timestamptz), updated_at (timestamptz)",
       "Running `alembic upgrade head` applies cleanly on a fresh database",
       "Running `alembic downgrade -1` drops the table"
     ],
     "phase": 1,
     "priority": 2,
-    "tags": ["backend", "database"],
-    "passes": true
+    "tags": [
+      "backend",
+      "database"
+    ]
   },
   {
     "id": "US-003",
     "title": "Alembic migration for positions table",
     "description": "As a developer, I want an Alembic migration that creates the `positions` table with all required columns and indexes.",
     "acceptance_criteria": [
-      "Migration creates `positions` table with all columns from the spec: id, user_id, account_id (FK → accounts.id), ticker, type (CHECK: COVERED_CALL, CASH_SECURED_PUT), status (CHECK: OPEN, CLOSED, default OPEN), open_date, expiration_date, close_date, strike_price (numeric), contracts (int), multiplier (int default 100), premium_per_share (numeric), open_fees (numeric default 0), close_fees (numeric default 0), close_price_per_share (numeric nullable), outcome (CHECK: EXPIRED, ASSIGNED, CLOSED_EARLY, ROLLED), roll_group_id (uuid nullable), notes (text nullable), tags (text[] nullable), created_at, updated_at",
+      "Migration creates `positions` table with all columns from the spec: id, user_id, account_id (FK \u2192 accounts.id), ticker, type (CHECK: COVERED_CALL, CASH_SECURED_PUT), status (CHECK: OPEN, CLOSED, default OPEN), open_date, expiration_date, close_date, strike_price (numeric), contracts (int), multiplier (int default 100), premium_per_share (numeric), open_fees (numeric default 0), close_fees (numeric default 0), close_price_per_share (numeric nullable), outcome (CHECK: EXPIRED, ASSIGNED, CLOSED_EARLY, ROLLED), roll_group_id (uuid nullable), notes (text nullable), tags (text[] nullable), created_at, updated_at",
       "Indexes exist on (user_id, status), (user_id, ticker), (user_id, expiration_date)",
       "Migration applies and rolls back cleanly"
     ],
     "phase": 1,
     "priority": 3,
-    "tags": ["backend", "database"],
-    "passes": true
+    "tags": [
+      "backend",
+      "database"
+    ]
   },
   {
     "id": "US-004",
@@ -53,8 +59,10 @@
     ],
     "phase": 1,
     "priority": 4,
-    "tags": ["backend", "database"],
-    "passes": true
+    "tags": [
+      "backend",
+      "database"
+    ]
   },
   {
     "id": "US-005",
@@ -69,8 +77,10 @@
     ],
     "phase": 1,
     "priority": 5,
-    "tags": ["backend", "auth"],
-    "passes": true
+    "tags": [
+      "backend",
+      "auth"
+    ]
   },
   {
     "id": "US-006",
@@ -85,8 +95,10 @@
     ],
     "phase": 1,
     "priority": 6,
-    "tags": ["backend", "api"],
-    "passes": true
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-007",
@@ -100,8 +112,10 @@
     ],
     "phase": 1,
     "priority": 7,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-008",
@@ -116,8 +130,10 @@
     ],
     "phase": 1,
     "priority": 8,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-009",
@@ -132,8 +148,10 @@
     ],
     "phase": 1,
     "priority": 9,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-010",
@@ -148,8 +166,10 @@
     ],
     "phase": 1,
     "priority": 10,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-011",
@@ -164,8 +184,10 @@
     ],
     "phase": 2,
     "priority": 11,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-012",
@@ -181,8 +203,10 @@
     ],
     "phase": 2,
     "priority": 12,
-    "tags": ["backend", "api"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api"
+    ]
   },
   {
     "id": "US-013",
@@ -196,8 +220,11 @@
     ],
     "phase": 3,
     "priority": 13,
-    "tags": ["backend", "api", "dashboard"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api",
+      "dashboard"
+    ]
   },
   {
     "id": "US-014",
@@ -211,8 +238,11 @@
     ],
     "phase": 3,
     "priority": 14,
-    "tags": ["backend", "api", "dashboard"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api",
+      "dashboard"
+    ]
   },
   {
     "id": "US-015",
@@ -226,8 +256,10 @@
     ],
     "phase": 1,
     "priority": 15,
-    "tags": ["frontend", "setup"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "setup"
+    ]
   },
   {
     "id": "US-016",
@@ -241,8 +273,10 @@
     ],
     "phase": 1,
     "priority": 16,
-    "tags": ["frontend", "setup"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "setup"
+    ]
   },
   {
     "id": "US-017",
@@ -256,8 +290,10 @@
     ],
     "phase": 1,
     "priority": 17,
-    "tags": ["frontend", "setup"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "setup"
+    ]
   },
   {
     "id": "US-018",
@@ -271,8 +307,10 @@
     ],
     "phase": 1,
     "priority": 18,
-    "tags": ["frontend", "auth"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "auth"
+    ]
   },
   {
     "id": "US-019",
@@ -286,8 +324,10 @@
     ],
     "phase": 1,
     "priority": 19,
-    "tags": ["frontend", "auth"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "auth"
+    ]
   },
   {
     "id": "US-020",
@@ -301,8 +341,10 @@
     ],
     "phase": 1,
     "priority": 20,
-    "tags": ["frontend", "api"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "api"
+    ]
   },
   {
     "id": "US-021",
@@ -316,8 +358,10 @@
     ],
     "phase": 2,
     "priority": 21,
-    "tags": ["frontend", "accounts"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "accounts"
+    ]
   },
   {
     "id": "US-022",
@@ -332,8 +376,10 @@
     ],
     "phase": 2,
     "priority": 22,
-    "tags": ["frontend", "positions"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "positions"
+    ]
   },
   {
     "id": "US-023",
@@ -348,8 +394,10 @@
     ],
     "phase": 2,
     "priority": 23,
-    "tags": ["frontend", "positions"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "positions"
+    ]
   },
   {
     "id": "US-024",
@@ -364,8 +412,10 @@
     ],
     "phase": 2,
     "priority": 24,
-    "tags": ["frontend", "positions"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "positions"
+    ]
   },
   {
     "id": "US-025",
@@ -380,8 +430,10 @@
     ],
     "phase": 2,
     "priority": 25,
-    "tags": ["frontend", "positions"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "positions"
+    ]
   },
   {
     "id": "US-026",
@@ -396,8 +448,11 @@
     ],
     "phase": 2,
     "priority": 26,
-    "tags": ["frontend", "positions", "history"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "positions",
+      "history"
+    ]
   },
   {
     "id": "US-027",
@@ -412,8 +467,10 @@
     ],
     "phase": 3,
     "priority": 27,
-    "tags": ["frontend", "dashboard"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "dashboard"
+    ]
   },
   {
     "id": "US-028",
@@ -428,8 +485,10 @@
     ],
     "phase": 3,
     "priority": 28,
-    "tags": ["frontend", "dashboard"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "dashboard"
+    ]
   },
   {
     "id": "US-029",
@@ -444,8 +503,11 @@
     ],
     "phase": 4,
     "priority": 29,
-    "tags": ["backend", "api", "prices"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api",
+      "prices"
+    ]
   },
   {
     "id": "US-030",
@@ -460,8 +522,10 @@
     ],
     "phase": 4,
     "priority": 30,
-    "tags": ["frontend", "prices"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "prices"
+    ]
   },
   {
     "id": "US-031",
@@ -477,8 +541,10 @@
     ],
     "phase": 4,
     "priority": 31,
-    "tags": ["frontend", "alerts"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "alerts"
+    ]
   },
   {
     "id": "US-032",
@@ -493,8 +559,11 @@
     ],
     "phase": 5,
     "priority": 32,
-    "tags": ["backend", "api", "export"],
-    "passes": false
+    "tags": [
+      "backend",
+      "api",
+      "export"
+    ]
   },
   {
     "id": "US-033",
@@ -508,8 +577,10 @@
     ],
     "phase": 5,
     "priority": 33,
-    "tags": ["frontend", "export"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "export"
+    ]
   },
   {
     "id": "US-034",
@@ -524,8 +595,10 @@
     ],
     "phase": 5,
     "priority": 34,
-    "tags": ["frontend", "settings"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "settings"
+    ]
   },
   {
     "id": "US-035",
@@ -540,7 +613,166 @@
     ],
     "phase": 5,
     "priority": 35,
-    "tags": ["frontend", "ux"],
-    "passes": false
+    "tags": [
+      "frontend",
+      "ux"
+    ]
+  },
+  {
+    "id": "US-036",
+    "title": "QA validation pass and testing tickets",
+    "description": "Meta-ticket for creating testing and QA sub-tickets that validate all major work from US-001 through US-035. Create as many sub-tickets as needed to thoroughly test and validate all prior work against the spec.",
+    "acceptance_criteria": [
+      "All backend endpoints are tested for correctness, edge cases, and auth enforcement",
+      "All frontend pages and components are tested for spec adherence, UX consistency, and error handling",
+      "Code quality audit: identify and resolve code smells, dead code, inconsistent patterns, and missing types",
+      "Product adherence: validate each prior ticket's acceptance criteria against the actual implementation (test against the spec file)",
+      "Clean code practices: ensure consistent naming, proper error handling, no hardcoded values, and DRY principles",
+      "Create as many sub-tickets as deemed necessary to cover all areas thoroughly"
+    ],
+    "phase": 6,
+    "priority": 36,
+    "tags": [
+      "qa",
+      "testing",
+      "refactor"
+    ]
+  },
+  {
+    "id": "US-037",
+    "title": "Fix updated_at auto-update on Account and Position models",
+    "description": "As a developer, I want the updated_at column to automatically refresh on every UPDATE so that API consumers can rely on it for change detection and caching.",
+    "acceptance_criteria": [
+      "Account and Position ORM models use onupdate=func.now() on the updated_at mapped_column",
+      "A new Alembic migration adds a database-level trigger or column default to set updated_at = now() on UPDATE",
+      "PATCH /api/v1/accounts/{id} returns a refreshed updated_at that differs from the original",
+      "PATCH /api/v1/positions/{id} returns a refreshed updated_at that differs from the original",
+      "POST /api/v1/positions/{id}/close returns a refreshed updated_at",
+      "Existing tests still pass after the migration"
+    ],
+    "phase": 7,
+    "priority": 37,
+    "tags": [
+      "critical",
+      "backend",
+      "bug"
+    ]
+  },
+  {
+    "id": "US-038",
+    "title": "Add date and business logic validations to position schemas",
+    "description": "As a user, I want the API to reject invalid date combinations and inappropriate field updates so that my data stays consistent.",
+    "acceptance_criteria": [
+      "PositionCreate validates expiration_date >= open_date; returns 422 with clear message if violated",
+      "Close and roll endpoints validate close_date >= open_date; returns 422 if violated",
+      "PATCH rejects close-related fields (close_date, close_price_per_share, close_fees, outcome) on positions with status=OPEN",
+      "Sort order param uses Literal type to restrict to valid column names",
+      "Tests cover all new validation rules with both valid and invalid inputs"
+    ],
+    "phase": 7,
+    "priority": 38,
+    "tags": [
+      "major",
+      "backend",
+      "validation"
+    ]
+  },
+  {
+    "id": "US-039",
+    "title": "Refactor API client to use auth interceptor + frontend .env.example",
+    "description": "As a developer, I want the API client to automatically attach auth tokens via an interceptor so that individual API functions don't need to pass tokens manually.",
+    "acceptance_criteria": [
+      "apiFetch() or Axios interceptor auto-retrieves the Supabase session token internally",
+      "All API functions (getPositions, createPosition, etc.) no longer accept a token parameter",
+      "All hooks and components updated to remove manual token passing",
+      "frontend/.env.example file exists documenting VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, and VITE_API_URL",
+      "Missing env vars show a user-friendly error message instead of a white screen crash",
+      "Login page checks loading state before rendering the form to prevent flash of login form"
+    ],
+    "phase": 7,
+    "priority": 39,
+    "tags": [
+      "major",
+      "frontend"
+    ]
+  },
+  {
+    "id": "US-040",
+    "title": "Harden price proxy endpoint",
+    "description": "As a developer, I want the price proxy endpoint to validate inputs and manage cache size so it cannot be abused or leak memory.",
+    "acceptance_criteria": [
+      "Tickers query param is capped at 20 tickers per request; returns 400 if exceeded",
+      "Each ticker is validated against alphanumeric format (letters, digits, dots, hyphens) with max 10 characters; invalid tickers return 400",
+      "Price cache uses LRU eviction or time-based expiry to prevent unbounded memory growth",
+      "Remove unused Any import from prices module",
+      "Tests cover ticker limit, invalid ticker format, and cache behavior"
+    ],
+    "phase": 7,
+    "priority": 40,
+    "tags": [
+      "major",
+      "backend",
+      "security"
+    ]
+  },
+  {
+    "id": "US-041",
+    "title": "Fix CSV export filter passthrough",
+    "description": "As a user, I want my CSV exports to respect the filters I have active on the page so that I export exactly what I see.",
+    "acceptance_criteria": [
+      "Backend GET /api/v1/export/positions.csv accepts type and account_id query params in addition to existing filters",
+      "Frontend Open Positions export button passes all active filters (status, ticker, type, account_id) as query params",
+      "Frontend History export button passes type and account_id filters as query params",
+      "Exported CSV matches the filtered view on the page",
+      "Tests verify filtered export returns correct subset of data"
+    ],
+    "phase": 7,
+    "priority": 41,
+    "tags": [
+      "major",
+      "frontend",
+      "backend",
+      "bug"
+    ]
+  },
+  {
+    "id": "US-042",
+    "title": "Frontend test suite setup and core tests",
+    "description": "As a developer, I want a frontend test suite so that critical UI logic is verified and regressions are caught.",
+    "acceptance_criteria": [
+      "Vitest is installed and configured with React Testing Library",
+      "Test script in package.json runs all frontend tests",
+      "Tests exist for: API client functions (mocked fetch), useAlerts hook logic, SettingsContext state management, AuthGuard redirect behavior, PositionsTable rendering",
+      "Minimum 15 test cases across all test files",
+      "All tests pass in CI-compatible mode (no browser required)"
+    ],
+    "phase": 7,
+    "priority": 42,
+    "tags": [
+      "major",
+      "frontend",
+      "testing"
+    ]
+  },
+  {
+    "id": "US-043",
+    "title": "Code quality cleanup",
+    "description": "As a developer, I want to clean up code smells and inconsistencies identified during QA review so the codebase is maintainable.",
+    "acceptance_criteria": [
+      "Duplicated test helper functions are extracted to backend/tests/helpers.py and reused across test files",
+      "Dashboard endpoint reuses PositionResponse computed field logic instead of duplicating calculations",
+      "Empty App.css is deleted; backward-compat shim in openPositionColumns is removed",
+      "AppSettings defaults are defined in one place and reused by both SettingsContext and SettingsPage",
+      "A 404 catch-all route is added to React Router for unknown paths",
+      "CORS origin is configured via environment variable instead of hardcoded wildcard"
+    ],
+    "phase": 7,
+    "priority": 43,
+    "tags": [
+      "minor",
+      "backend",
+      "frontend",
+      "refactor"
+    ]
   }
 ]
