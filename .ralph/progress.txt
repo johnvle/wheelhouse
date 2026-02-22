@@ -61,6 +61,10 @@
 - Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
 - PATCH pattern: `model_dump(exclude_unset=True)` + `setattr` loop; handle `.value`/`.upper()` in the loop
 - Mock query sequencing: `mock_db.query.side_effect = [query1, query2]` for multiple distinct queries in one endpoint
+- Settings: `SettingsContext` with `useSettings()` hook; `AppSettings` type; localStorage persistence under `wheelhouse_settings` key
+- Settings wiring: Pass settings as params to hooks/column functions (not import context inside); keeps components testable
+- Column visibility: TanStack Table `VisibilityState` + `onColumnVisibilityChange`; persist per-table in localStorage via `storageKey` prop
+- Filter bar: Reuse History.tsx pattern (Input + Select components, `PositionFilters` type) for consistent filter UI across pages
 
 ---
 
@@ -751,4 +755,131 @@
   - `isPriceStale` compares `Date.now()` against parsed `last_fetched` timestamp — backend returns ISO datetime
   - `refetchInterval: 60_000` in useQuery enables automatic polling every 60 seconds without manual setInterval
   - Price column uses conditional styling: yellow bg for near-strike, orange "!" for stale, green/red for change %
+---
+
+## 2026-02-22 - US-031
+- What was implemented:
+  - Created `useAlerts` hook (`src/hooks/useAlerts.ts`) that evaluates positions + prices to produce three alert types: expiration (within 7 days), near-strike (5% threshold), stale price (>5 min)
+  - Each alert has a unique ID: `exp-{positionId}`, `near-{positionId}`, `stale-{ticker}`
+  - Dismissal tracked in state via `Set<string>`; dismissed alerts reset when price data refreshes (new `priceFingerprint`)
+  - Price fingerprint computed from all `last_fetched` timestamps joined — detects price refresh cycles
+  - Created `AlertBanner` component (`src/components/AlertBanner.tsx`) with color-coded alert rows: orange for expiration, yellow for near-strike, gray for stale price
+  - Each alert is individually dismissible (x button); "Dismiss all" button when >1 alert
+  - Banner renders at top of Open Positions page between header and table
+  - Alert evaluation runs on every price refresh via `useMemo` dependency on `priceMap`
+  - Default thresholds: 7 days expiration, 0.05 near-strike, 5 min stale — structured as constants for US-034 settings override
+- Files changed:
+  - `frontend/src/hooks/useAlerts.ts` (new — alert computation + dismiss logic)
+  - `frontend/src/components/AlertBanner.tsx` (new — alert banner UI)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useAlerts + AlertBanner)
+- **Learnings:**
+  - Price fingerprint pattern: join all `last_fetched` timestamps to detect when price data actually refreshes vs just re-renders
+  - `useRef` for previous fingerprint avoids resetting dismissals on initial render (only reset when fingerprint actually changes)
+  - Stale price alerts deduplicated per ticker using a `Set` — multiple positions with same ticker only produce one stale alert
+  - Alert type constants (thresholds) kept as module-level constants for easy override in US-034 settings feature
+  - Near-strike formula: CC uses `price >= strike * (1 - threshold)`, CSP uses `price <= strike * (1 + threshold)` — matches the PositionsTable `isNearStrike` helper
+---
+
+## 2026-02-22 - US-032
+- What was implemented:
+  - Created `app/routers/export.py` with `GET /api/v1/export/positions.csv` endpoint
+  - Returns downloadable CSV file with Content-Disposition header (`attachment; filename="positions_YYYY-MM-DD.csv"`)
+  - Supports query params: `start`, `end` (date range on open_date), `status`, `ticker` (case-insensitive)
+  - CSV includes all 22 position fields plus 6 computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc) — 28 columns total
+  - Uses `PositionResponse.model_validate(orm_obj)` to compute derived fields per row
+  - Tags (list) serialized as semicolon-separated string; None values serialized as empty string
+  - Empty result set returns CSV with headers only (no data rows)
+  - Endpoint requires authentication via `get_current_user` dependency
+  - Wired router into `app/main.py`
+  - Created `tests/test_export.py` with 10 tests covering: CSV content, empty result, computed fields, status filter, ticker filter, date range filter, auth required, filename, tags serialization, multiple positions
+- Files changed:
+  - `backend/app/routers/export.py` (new)
+  - `backend/app/main.py` (modified — added export router)
+  - `backend/tests/test_export.py` (new)
+- **Learnings:**
+  - `StreamingResponse` with `iter([output.getvalue()])` is the simplest way to return CSV as a downloadable file in FastAPI
+  - `Content-Disposition: attachment; filename="..."` triggers browser file download
+  - `csv.writer` + `io.StringIO` for in-memory CSV generation avoids temp files
+  - Reusing `PositionResponse.model_validate()` in the export endpoint leverages existing computed field logic (same as dashboard by-ticker)
+  - Tags as `list[str]` need special serialization for CSV — semicolon separator avoids conflicts with CSV commas
+---
+
+## 2026-02-22 - US-033
+- What was implemented:
+  - Added `exportPositionsCsv` function to `src/lib/api.ts` — fetches CSV as blob, extracts filename from Content-Disposition header, triggers browser download via programmatic `<a>` element
+  - Created `useExportCsv` hook (`src/hooks/useExportCsv.ts`) managing loading state for the export operation
+  - Added "Export CSV" button (variant="outline") to Open Positions page header alongside "Add Position" button
+  - Added "Export CSV" button to History page header, passes current page filters (status=CLOSED, ticker, date range) as query params
+  - Both buttons show "Exporting..." loading state while download is in progress and are disabled during export
+  - Downloaded filename extracted from backend's Content-Disposition header, with client-side fallback to `positions_YYYY-MM-DD.csv`
+  - 401 token refresh handling included in the export function (same pattern as apiFetch)
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/lib/api.ts` (modified — added exportPositionsCsv, triggerDownload, ExportFilters)
+  - `frontend/src/hooks/useExportCsv.ts` (new — export hook with loading state)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added Export CSV button)
+  - `frontend/src/pages/History.tsx` (modified — added Export CSV button with filters)
+- **Learnings:**
+  - CSV download can't use `apiFetch` (which parses JSON); needs direct `fetch` → `res.blob()` → `URL.createObjectURL` → programmatic `<a>` click
+  - `Content-Disposition` header filename extraction: `res.headers.get("Content-Disposition")?.match(/filename="?([^"]+)"?/)`
+  - `URL.revokeObjectURL(url)` after download prevents memory leaks from blob URLs
+  - Export filters differ from `PositionFilters` — backend export uses `start`/`end` (not `expiration_start`/`expiration_end`) and doesn't support `account_id`
+  - Simple `useState` hook is sufficient for export loading state — no need for TanStack Query `useMutation` since there's no cache invalidation or data return
+---
+
+## 2026-02-22 - US-034
+- What was implemented:
+  - Created `SettingsContext` (`src/contexts/SettingsContext.tsx`) with `SettingsProvider`, `useSettings` hook, and `AppSettings` type
+  - Settings persisted in localStorage under key `wheelhouse_settings`; loaded on init with fallback to defaults
+  - `updateSettings(partial)` merges partial updates into current settings and saves immediately
+  - Added alert threshold form section to Settings page above the existing account management section
+  - Three configurable fields: expiration warning days (number input, min 1), price near strike % (integer input converted to/from decimal), stale price minutes (number input, min 1)
+  - Wired `SettingsProvider` into `main.tsx` wrapping the entire app
+  - Updated `useAlerts` to accept optional `AppSettings` parameter, replacing hardcoded constants
+  - Updated `PositionsTable.tsx` `isPriceStale` and `isNearStrike` helpers to accept threshold parameters
+  - Added `nearStrikeThreshold` and `stalePriceMinutes` to `OpenPositionColumnOptions` interface
+  - Updated `OpenPositions.tsx` to use `useSettings()` and pass settings to both `useAlerts` and `openPositionColumns`
+  - Changes take effect immediately without page reload (React context triggers re-render)
+- Files changed:
+  - `frontend/src/contexts/SettingsContext.tsx` (new — settings context with localStorage persistence)
+  - `frontend/src/main.tsx` (modified — added SettingsProvider wrapper)
+  - `frontend/src/pages/Settings.tsx` (modified — added alert threshold form section)
+  - `frontend/src/hooks/useAlerts.ts` (modified — parameterized thresholds)
+  - `frontend/src/components/PositionsTable.tsx` (modified — parameterized isPriceStale/isNearStrike)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useSettings, passed to hooks/columns)
+- **Learnings:**
+  - React 19 context uses `<SettingsContext value={...}>` (not `.Provider`) for the new context API
+  - `useCallback` for `updateSettings` prevents unnecessary re-renders of consumers
+  - Near strike threshold stored as decimal (0.05) but displayed as integer percentage (5%) — multiply/divide by 100 at the form boundary
+  - `useState(loadSettings)` with a function reference (not call) defers localStorage read to first render only
+  - Adding thresholds as optional params with defaults to existing functions (`isPriceStale`, `isNearStrike`, `computeAlerts`) maintains backward compatibility
+  - Settings dependencies added to `useMemo` for `columns` and `allAlerts` ensure immediate reactivity when settings change
+---
+
+## 2026-02-22 - US-035
+- What was implemented:
+  - Added column visibility dropdown to `PositionsTable` using shadcn/ui DropdownMenu with `DropdownMenuCheckboxItem`
+  - TanStack Table's built-in `VisibilityState` + `onColumnVisibilityChange` for state management
+  - Column visibility persisted per table via localStorage: `wheelhouse_open_col_vis` and `wheelhouse_history_col_vis`
+  - Actions column marked with `enableHiding: false` to prevent hiding
+  - Added filter bar to Open Positions page: ticker search (auto-uppercase), type (Select), account (Select), expiration date range (From/To)
+  - Filter bar matches the History page pattern for consistent UX
+  - Both Open Positions and History tables now have `storageKey` prop for column visibility persistence
+  - Added `overflow-x-auto` to Dashboard ticker table for consistent responsive horizontal scrolling
+  - Installed shadcn/ui `dropdown-menu` and `checkbox` components
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/components/PositionsTable.tsx` (modified — added column visibility state, dropdown, storageKey prop, localStorage persistence)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added filter bar, storageKey to PositionsTable)
+  - `frontend/src/pages/History.tsx` (modified — added storageKey to PositionsTable)
+  - `frontend/src/pages/Dashboard.tsx` (modified — added overflow-x-auto to ticker table)
+  - `frontend/src/components/ui/dropdown-menu.tsx` (new — shadcn/ui DropdownMenu)
+  - `frontend/src/components/ui/checkbox.tsx` (new — shadcn/ui Checkbox)
+- **Learnings:**
+  - TanStack Table has built-in column visibility via `VisibilityState` + `onColumnVisibilityChange` — no custom state management needed
+  - `column.getCanHide()` defaults to `true`; set `enableHiding: false` on column defs to exclude from visibility toggle (e.g., actions column)
+  - `DropdownMenuCheckboxItem` from shadcn/ui maps perfectly to column visibility toggles — `checked={col.getIsVisible()}` + `onCheckedChange` to toggle
+  - Per-table localStorage keys (not shared settings context) are cleaner for column visibility since open vs closed tables have different column sets
+  - `typeof col.columnDef.header === "string"` check needed to display column names in dropdown — non-string headers (render functions) fall back to `col.id`
+  - Filter bar pattern (from History.tsx) reused on OpenPositions with `PositionFilters` type — consistent UX across pages
 ---

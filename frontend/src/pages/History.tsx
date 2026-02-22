@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useExportCsv } from "@/hooks/useExportCsv";
 import PositionsTable, {
   closedPositionColumns,
 } from "@/components/PositionsTable";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,6 +38,7 @@ export default function History() {
 
   const { data: positions, isLoading, error } = usePositions(filters);
   const { data: accounts } = useAccounts();
+  const { exportCsv, isExporting, error: exportError } = useExportCsv();
 
   const accountNames = useMemo(() => {
     if (!accounts) return {};
@@ -56,12 +59,32 @@ export default function History() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-2xl font-bold">History</h1>
-        <p className="text-muted-foreground mt-1">
-          Review your closed positions
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">History</h1>
+          <p className="text-muted-foreground mt-1">
+            Review your closed positions
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() =>
+            exportCsv({
+              status: "CLOSED",
+              ...(tickerSearch ? { ticker: tickerSearch.toUpperCase() } : {}),
+              ...(dateStart ? { start: dateStart } : {}),
+              ...(dateEnd ? { end: dateEnd } : {}),
+            })
+          }
+          disabled={isExporting}
+        >
+          {isExporting ? "Exporting..." : "Export CSV"}
+        </Button>
       </div>
+
+      {exportError && (
+        <p className="text-sm text-destructive mt-2">{exportError}</p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="w-40">
@@ -151,7 +174,7 @@ export default function History() {
         )}
         {error && (
           <p className="text-sm text-destructive">
-            Failed to load positions
+            Failed to load positions: {error.message}
           </p>
         )}
         {filteredPositions.length === 0 && !isLoading && !error && (
@@ -163,7 +186,7 @@ export default function History() {
           </div>
         )}
         {filteredPositions.length > 0 && (
-          <PositionsTable data={filteredPositions} columns={columns} />
+          <PositionsTable data={filteredPositions} columns={columns} storageKey="wheelhouse_history_col_vis" />
         )}
       </div>
     </div>

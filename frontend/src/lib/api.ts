@@ -245,3 +245,67 @@ export function getDashboardByTicker(
     token
   );
 }
+
+// --- Export ---
+
+export interface ExportFilters {
+  status?: PositionStatus;
+  ticker?: string;
+  start?: string;
+  end?: string;
+}
+
+export async function exportPositionsCsv(
+  params: ExportFilters,
+  token: string | null
+): Promise<void> {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null) searchParams.set(key, value);
+  }
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(
+    `${API_BASE}/api/v1/export/positions.csv?${searchParams.toString()}`,
+    { headers }
+  );
+
+  if (res.status === 401 && token) {
+    const newToken = await refreshAccessToken();
+    if (!newToken) throw new Error("Session expired");
+    headers["Authorization"] = `Bearer ${newToken}`;
+    const retry = await fetch(
+      `${API_BASE}/api/v1/export/positions.csv?${searchParams.toString()}`,
+      { headers }
+    );
+    if (!retry.ok) throw new Error(`Export failed: ${retry.status}`);
+    await triggerDownload(retry);
+    return;
+  }
+
+  if (!res.ok) {
+    throw new Error(`Export failed: ${res.status}`);
+  }
+
+  await triggerDownload(res);
+}
+
+async function triggerDownload(res: Response): Promise<void> {
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  const match = disposition?.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? `positions_${new Date().toISOString().slice(0, 10)}.csv`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

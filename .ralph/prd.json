@@ -478,7 +478,7 @@
     "phase": 4,
     "priority": 31,
     "tags": ["frontend", "alerts"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-032",
@@ -494,7 +494,7 @@
     "phase": 5,
     "priority": 32,
     "tags": ["backend", "api", "export"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-033",
@@ -509,7 +509,7 @@
     "phase": 5,
     "priority": 33,
     "tags": ["frontend", "export"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-034",
@@ -525,7 +525,7 @@
     "phase": 5,
     "priority": 34,
     "tags": ["frontend", "settings"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-035",
@@ -541,7 +541,7 @@
     "phase": 5,
     "priority": 35,
     "tags": ["frontend", "ux"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-036",
@@ -558,6 +558,6 @@
     "phase": 6,
     "priority": 36,
     "tags": ["qa", "testing", "refactor"],
-    "passes": false
+    "passes": true
   }
 ]

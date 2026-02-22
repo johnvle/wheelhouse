@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.enums import Broker
 
@@ -10,7 +10,7 @@ from app.schemas.enums import Broker
 class AccountCreate(BaseModel):
     model_config = ConfigDict(strict=False)
 
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     broker: Broker
     tax_treatment: Optional[str] = None
 
@@ -18,7 +18,7 @@ class AccountCreate(BaseModel):
 class AccountUpdate(BaseModel):
     model_config = ConfigDict(strict=False)
 
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     broker: Optional[Broker] = None
     tax_treatment: Optional[str] = None
 

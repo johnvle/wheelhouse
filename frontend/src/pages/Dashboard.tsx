@@ -157,7 +157,7 @@ export default function Dashboard() {
 
       {error && (
         <p className="text-sm text-destructive mt-4">
-          Failed to load dashboard data
+          Failed to load dashboard data: {error.message}
         </p>
       )}
 
@@ -226,7 +226,7 @@ export default function Dashboard() {
 
         {tickerError && (
           <p className="text-sm text-destructive mt-4">
-            Failed to load ticker data
+            Failed to load ticker data: {tickerError.message}
           </p>
         )}
 
@@ -241,7 +241,7 @@ export default function Dashboard() {
             No closed positions to summarize yet.
           </div>
         ) : tickerData ? (
-          <div className="mt-4 rounded-md border">
+          <div className="mt-4 overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
