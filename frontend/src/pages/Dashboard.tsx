@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useDashboardSummary } from "@/hooks/useDashboardSummary";
+import { useDashboardByTicker } from "@/hooks/useDashboardByTicker";
 import {
   Card,
   CardContent,
@@ -8,6 +9,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { DashboardFilters } from "@/lib/api";
 import type { Position } from "@/types/position";
 
@@ -112,6 +121,11 @@ export default function Dashboard() {
   };
 
   const { data: summary, isLoading, error } = useDashboardSummary(filters);
+  const {
+    data: tickerData,
+    isLoading: tickerLoading,
+    error: tickerError,
+  } = useDashboardByTicker(filters);
 
   return (
     <div>
@@ -200,6 +214,59 @@ export default function Dashboard() {
               positions={summary.upcoming_expirations}
             />
           </>
+        ) : null}
+      </div>
+
+      {/* Ticker Summary */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold">By Ticker</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Per-ticker premium and ROC breakdown
+        </p>
+
+        {tickerError && (
+          <p className="text-sm text-destructive mt-4">
+            Failed to load ticker data
+          </p>
+        )}
+
+        {tickerLoading ? (
+          <div className="mt-4 space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : tickerData && tickerData.length === 0 ? (
+          <div className="mt-4 rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No closed positions to summarize yet.
+          </div>
+        ) : tickerData ? (
+          <div className="mt-4 rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ticker</TableHead>
+                  <TableHead className="text-right">Total Premium</TableHead>
+                  <TableHead className="text-right">Trade Count</TableHead>
+                  <TableHead className="text-right">Avg Annualized ROC</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tickerData.map((t) => (
+                  <TableRow key={t.ticker}>
+                    <TableCell className="font-semibold">{t.ticker}</TableCell>
+                    <TableCell className="text-right">
+                      {currencyFmt.format(t.total_premium)}
+                    </TableCell>
+                    <TableCell className="text-right">{t.trade_count}</TableCell>
+                    <TableCell className="text-right">
+                      {(t.avg_annualized_roc * 100).toFixed(1)}%
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : null}
       </div>
     </div>

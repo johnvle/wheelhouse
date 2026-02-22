@@ -429,7 +429,7 @@
     "phase": 3,
     "priority": 28,
     "tags": ["frontend", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-029",
