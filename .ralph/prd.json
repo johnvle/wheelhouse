@@ -333,7 +333,7 @@
     "phase": 2,
     "priority": 22,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-023",

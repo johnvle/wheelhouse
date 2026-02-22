@@ -537,3 +537,25 @@
   - `useEffect` on `[account, open]` resets form state when dialog opens (prevents stale data)
   - shadcn/ui Select uses Radix primitives: `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`
 ---
+
+## 2026-02-22 - US-022
+- What was implemented:
+  - Created `PositionsTable` component using TanStack Table with `useReactTable`, `getCoreRowModel`, `getSortedRowModel`
+  - Defined `openPositionColumns` column definitions with formatters: currency (Intl.NumberFormat), percent, abbreviations (CC/CSP)
+  - All columns support sorting via `getToggleSortingHandler()` with arrow indicators
+  - Sticky header via `sticky top-0` class on TableHeader
+  - Empty state with dashed border and prompt message
+  - Loading and error states shown on the OpenPositions page
+  - Data fetched via `usePositions({ status: "OPEN" })` using TanStack Query
+  - Added shadcn/ui Table component
+- Files changed:
+  - `frontend/src/components/PositionsTable.tsx` (new — TanStack Table with columns and sorting)
+  - `frontend/src/pages/OpenPositions.tsx` (rewritten — uses PositionsTable with data fetching)
+  - `frontend/src/components/ui/table.tsx` (new — shadcn/ui Table)
+- **Learnings:**
+  - TanStack Table column definitions: `accessorKey` for data binding, `header` for display name, `cell` for custom rendering
+  - `getSortedRowModel()` enables client-side sorting; `onSortingChange` + `state.sorting` for controlled state
+  - `getToggleSortingHandler()` returns an event handler for click-to-sort headers
+  - `flexRender()` is used to render both header and cell content from column definitions
+  - Separate `openPositionColumns` export allows reuse and customization for different table views
+---
