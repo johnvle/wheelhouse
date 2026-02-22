@@ -525,7 +525,7 @@
     "phase": 5,
     "priority": 34,
     "tags": ["frontend", "settings"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-035",

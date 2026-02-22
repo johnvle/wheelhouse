@@ -1,7 +1,10 @@
 import { useState } from "react";
 import type { Account, Broker } from "@/types/account";
 import { useAccounts, useCreateAccount, useUpdateAccount } from "@/hooks/useAccounts";
+import { useSettings } from "@/contexts/SettingsContext";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -16,6 +19,7 @@ export default function Settings() {
   const { data: accounts, isLoading, error } = useAccounts();
   const createMutation = useCreateAccount();
   const updateMutation = useUpdateAccount();
+  const { settings, updateSettings } = useSettings();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -55,6 +59,76 @@ export default function Settings() {
     <div>
       <h1 className="text-2xl font-bold">Settings</h1>
       <p className="text-muted-foreground mt-1">Configure your preferences</p>
+
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold">Alert Thresholds</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Configure when alerts trigger on the Open Positions page. Changes take effect immediately.
+        </p>
+
+        <div className="mt-4 grid gap-6 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="expirationWarningDays">Expiration warning (days)</Label>
+            <Input
+              id="expirationWarningDays"
+              type="number"
+              min={1}
+              max={90}
+              value={settings.expirationWarningDays}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1) {
+                  updateSettings({ expirationWarningDays: val });
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Alert when a position expires within this many days
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="nearStrikeThreshold">Price near strike (%)</Label>
+            <Input
+              id="nearStrikeThreshold"
+              type="number"
+              min={1}
+              max={50}
+              step={1}
+              value={Math.round(settings.nearStrikeThreshold * 100)}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 50) {
+                  updateSettings({ nearStrikeThreshold: val / 100 });
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Alert when price is within this % of the strike
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="stalePriceMinutes">Stale price (minutes)</Label>
+            <Input
+              id="stalePriceMinutes"
+              type="number"
+              min={1}
+              max={60}
+              value={settings.stalePriceMinutes}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1) {
+                  updateSettings({ stalePriceMinutes: val });
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Alert when price data is older than this many minutes
+            </p>
+          </div>
+        </div>
+      </section>
 
       <section className="mt-8">
         <div className="flex items-center justify-between">

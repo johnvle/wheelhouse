@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import type { Position } from "@/types/position";
 import type { TickerPrice } from "@/types/price";
+import type { AppSettings } from "@/contexts/SettingsContext";
 
 export interface Alert {
   id: string;
@@ -10,18 +11,20 @@ export interface Alert {
   ticker?: string;
 }
 
-// Default thresholds (will be overridden by settings in US-034)
-const EXPIRATION_WARNING_DAYS = 7;
-const NEAR_STRIKE_THRESHOLD = 0.05;
-const STALE_PRICE_MINUTES = 5;
+const DEFAULTS: AppSettings = {
+  expirationWarningDays: 7,
+  nearStrikeThreshold: 0.05,
+  stalePriceMinutes: 5,
+};
 
 function computeAlerts(
   positions: Position[],
-  priceMap: Record<string, TickerPrice>
+  priceMap: Record<string, TickerPrice>,
+  thresholds: AppSettings = DEFAULTS
 ): Alert[] {
   const alerts: Alert[] = [];
   const now = Date.now();
-  const staleCutoff = STALE_PRICE_MINUTES * 60 * 1000;
+  const staleCutoff = thresholds.stalePriceMinutes * 60 * 1000;
 
   // Track which tickers we've already flagged as stale
   const staleTickers = new Set<string>();
@@ -30,7 +33,7 @@ function computeAlerts(
     // Expiration alert
     const expDate = new Date(pos.expiration_date).getTime();
     const daysUntilExp = (expDate - now) / (1000 * 60 * 60 * 24);
-    if (daysUntilExp <= EXPIRATION_WARNING_DAYS && daysUntilExp >= 0) {
+    if (daysUntilExp <= thresholds.expirationWarningDays && daysUntilExp >= 0) {
       const daysText =
         daysUntilExp < 1
           ? "today"
@@ -52,9 +55,9 @@ function computeAlerts(
       let nearStrike = false;
 
       if (pos.type === "COVERED_CALL") {
-        nearStrike = price >= strike * (1 - NEAR_STRIKE_THRESHOLD);
+        nearStrike = price >= strike * (1 - thresholds.nearStrikeThreshold);
       } else {
-        nearStrike = price <= strike * (1 + NEAR_STRIKE_THRESHOLD);
+        nearStrike = price <= strike * (1 + thresholds.nearStrikeThreshold);
       }
 
       if (nearStrike) {
@@ -75,7 +78,7 @@ function computeAlerts(
           alerts.push({
             id: `stale-${pos.ticker}`,
             type: "stale_price",
-            message: `${pos.ticker} price data is stale (last updated >5 min ago)`,
+            message: `${pos.ticker} price data is stale (last updated >${thresholds.stalePriceMinutes} min ago)`,
             ticker: pos.ticker,
           });
         }
@@ -88,7 +91,8 @@ function computeAlerts(
 
 export function useAlerts(
   positions: Position[] | undefined,
-  priceMap: Record<string, TickerPrice>
+  priceMap: Record<string, TickerPrice>,
+  settings?: AppSettings
 ) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
@@ -114,8 +118,8 @@ export function useAlerts(
   }, [priceFingerprint]);
 
   const allAlerts = useMemo(
-    () => computeAlerts(positions ?? [], priceMap),
-    [positions, priceMap]
+    () => computeAlerts(positions ?? [], priceMap, settings),
+    [positions, priceMap, settings]
   );
 
   const activeAlerts = useMemo(

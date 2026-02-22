@@ -3,6 +3,7 @@ import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
 import { usePrices } from "@/hooks/usePrices";
 import { useAlerts } from "@/hooks/useAlerts";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
 import { useClosePosition } from "@/hooks/useClosePosition";
 import { useRollPosition } from "@/hooks/useRollPosition";
@@ -21,6 +22,7 @@ import type { Position } from "@/types/position";
 export default function OpenPositions() {
   const { data: positions, isLoading, error } = usePositions({ status: "OPEN" });
   const { data: accounts } = useAccounts();
+  const { settings } = useSettings();
   const createPosition = useCreatePosition();
   const closePositionMutation = useClosePosition();
   const rollPositionMutation = useRollPosition();
@@ -40,7 +42,7 @@ export default function OpenPositions() {
     return Object.fromEntries(priceData.prices.map((p) => [p.ticker, p]));
   }, [priceData]);
 
-  const { alerts, dismiss, dismissAll } = useAlerts(positions, priceMap);
+  const { alerts, dismiss, dismissAll } = useAlerts(positions, priceMap, settings);
 
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
@@ -58,6 +60,8 @@ export default function OpenPositions() {
       openPositionColumns({
         accountNames,
         prices: priceMap,
+        nearStrikeThreshold: settings.nearStrikeThreshold,
+        stalePriceMinutes: settings.stalePriceMinutes,
         onClose: (position) => {
           setClosingPosition(position);
           setCloseDialogOpen(true);
@@ -67,7 +71,7 @@ export default function OpenPositions() {
           setRollDialogOpen(true);
         },
       }),
-    [accountNames, priceMap]
+    [accountNames, priceMap, settings.nearStrikeThreshold, settings.stalePriceMinutes]
   );
 
   function handleAddSubmit(data: PositionCreateBody) {
