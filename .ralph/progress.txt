@@ -496,3 +496,23 @@
   - `<Navigate to="/" replace />` for already-authenticated users prevents login page flash
   - `disabled={submitting}` on Button prevents double-submit; `try/catch/finally` ensures `setSubmitting(false)` always runs
 ---
+
+## 2026-02-22 - US-020
+- What was implemented:
+  - Enhanced `apiFetch` with 401 token refresh: on 401, calls `supabase.auth.refreshSession()`, retries with new token; on refresh failure, redirects to `/login`
+  - Created typed API functions for all backend endpoints: `getAccounts`, `createAccount`, `updateAccount`, `getPositions`, `createPosition`, `updatePosition`, `closePosition`, `rollPosition`, `getDashboardSummary`, `getDashboardByTicker`
+  - Created TypeScript types for `Account`, `AccountCreate`, `AccountUpdate` (`src/types/account.ts`)
+  - Created TypeScript types for `DashboardSummary`, `TickerSummary` (`src/types/dashboard.ts`)
+  - Updated `usePositions` hook to use typed `getPositions` and `PositionFilters` from API client
+  - API base URL configurable via `VITE_API_BASE_URL` env var
+- Files changed:
+  - `frontend/src/lib/api.ts` (rewritten — full API client with 401 handling and typed functions)
+  - `frontend/src/types/account.ts` (new — Account types)
+  - `frontend/src/types/dashboard.ts` (new — Dashboard types)
+  - `frontend/src/hooks/usePositions.ts` (simplified — uses getPositions from api.ts)
+- **Learnings:**
+  - 401 interceptor pattern: check `res.status === 401`, try `supabase.auth.refreshSession()`, retry with new token, redirect on failure
+  - `window.location.href = "/login"` is a hard redirect (full page reload) — appropriate for auth failure to clear all state
+  - Typed API functions follow consistent pattern: `functionName(params, token)` → `apiFetch<ReturnType>(path, token, options)`
+  - `Object.entries(params)` + `URLSearchParams` for clean query string building from filter objects
+---

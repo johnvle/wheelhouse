@@ -302,7 +302,7 @@
     "phase": 1,
     "priority": 20,
     "tags": ["frontend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-021",
