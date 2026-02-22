@@ -18,6 +18,7 @@
 - PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
 - Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
+- Prices: yfinance lazy import + in-memory dict cache with `time.time()` TTL; mock `_fetch_prices` in tests (not yfinance internals)
 - Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
 - Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
 - List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
@@ -673,4 +674,54 @@
   - `Intl.NumberFormat` with `style: "currency"` gives consistent currency formatting across the app
   - Upcoming expirations come as full `Position[]` from the API, so the same Position type is reused
   - Grid layout `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` provides responsive widget layout; upcoming expirations span full width with `col-span-full`
+---
+
+## 2026-02-22 - US-028
+- What was implemented:
+  - Created `useDashboardByTicker` hook following same pattern as `useDashboardSummary` (query key includes date filter params)
+  - Added ticker summary table to Dashboard page below the summary widgets
+  - Table displays: ticker (bold), total premium (currency), trade count, avg annualized ROC (percentage)
+  - Data sorted by total premium descending (backend handles default sort)
+  - Respects same date range filter (From/To) as summary widgets via shared `filters` object
+  - Loading state with skeleton rows; empty state with dashed border message
+  - Error state displays failure message independently of summary error
+- Files changed:
+  - `frontend/src/hooks/useDashboardByTicker.ts` (new — TanStack Query hook)
+  - `frontend/src/pages/Dashboard.tsx` (modified — added ticker table section, imports)
+- **Learnings:**
+  - `useDashboardByTicker` is nearly identical to `useDashboardSummary` — same `DashboardFilters` param, same query key structure with date params
+  - Reusing the existing `Table` shadcn/ui component from US-022 — no new component installs needed
+  - `avg_annualized_roc` from backend is a decimal (0.15 = 15%); multiply by 100 and `.toFixed(1)` for display
+  - Sharing the `filters` object between `useDashboardSummary` and `useDashboardByTicker` ensures both sections respect the same date range automatically
+---
+
+## 2026-02-22 - US-029
+- What was implemented:
+  - Created `app/schemas/price.py` with `TickerPrice` and `PriceResponse` Pydantic schemas
+  - Created `app/routers/prices.py` with `GET /api/v1/prices?tickers=AAPL,TSLA` endpoint
+  - Uses `yfinance` library to fetch current stock prices via `yf.download()`
+  - In-memory cache with 60-second TTL: `{ticker: (TickerPrice, timestamp)}` dict
+  - Per-ticker caching — only fetches tickers not already in cache (or expired)
+  - Invalid tickers return null values for `current_price`, `change_percent`, `last_fetched` (no errors)
+  - Tickers are uppercased before fetching
+  - Endpoint requires authentication via `get_current_user` dependency
+  - Response includes `last_fetched` UTC timestamp per ticker
+  - Added `yfinance>=0.2,<1` to `requirements.txt`
+  - Wired router into `app/main.py`
+  - Updated `app/schemas/__init__.py` with `PriceResponse` and `TickerPrice` exports
+  - Created `tests/test_prices.py` with 9 tests covering: valid data, invalid ticker nulls, cache hit, cache expiry, auth required, timestamp, uppercase, empty tickers, multiple tickers
+- Files changed:
+  - `backend/app/schemas/price.py` (new)
+  - `backend/app/routers/prices.py` (new)
+  - `backend/app/main.py` (modified — added prices router)
+  - `backend/app/schemas/__init__.py` (modified — added exports)
+  - `backend/requirements.txt` (modified — added yfinance)
+  - `backend/tests/test_prices.py` (new)
+- **Learnings:**
+  - `yfinance.download()` with `period="2d"` and `interval="1d"` gives 2 close prices for computing change %
+  - Single-ticker vs multi-ticker yfinance results differ in shape: single returns flat `data["Close"]`, multi returns `data["Close"][ticker]`
+  - In-memory dict cache with `time.time()` timestamps is the simplest caching approach for a single-server, 1-2 user app
+  - `patch.object(module, "_fetch_prices")` is cleaner than mocking yfinance internals for testing the router
+  - `autouse=True` fixture clearing `_price_cache` prevents test pollution from cached state
+  - yfinance lazy import inside `_fetch_prices` avoids import-time slowdowns and makes testing easier
 ---

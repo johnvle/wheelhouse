@@ -445,7 +445,7 @@
     "phase": 4,
     "priority": 29,
     "tags": ["backend", "api", "prices"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-030",
