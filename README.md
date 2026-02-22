@@ -1,42 +1,41 @@
 # Wheelhouse
 
-Personal options wheel strategy tracker — covered calls, cash-secured puts, premium yield metrics.
+Personal options wheel strategy tracker. Log covered calls and cash-secured puts, track premium income across brokerage accounts, and monitor yield metrics like return on collateral and annualized ROC.
 
-## Stack
+## What it does
 
-| Layer    | Tech                          | Hosting   |
-|----------|-------------------------------|-----------|
-| Frontend | React 19, Vite, TypeScript    | Vercel    |
-| Backend  | FastAPI, SQLAlchemy, Alembic  | Fly.io    |
-| Database | PostgreSQL                    | Supabase  |
-| UI       | shadcn/ui, Tailwind CSS       |           |
-| Auth     | Supabase Auth (JWT)           |           |
+- **Open positions dashboard** — view all active covered calls and cash-secured puts with real-time prices, DTE countdown, and strike distance
+- **Closed positions history** — track outcomes (expired, assigned, closed early, rolled) with P&L
+- **Premium yield metrics** — auto-calculated return on collateral, annualized ROC, and net premium after fees
+- **Multi-account support** — organize positions by brokerage account with broker and tax treatment metadata
+- **Roll tracking** — link rolled positions together via roll groups
+- **CSV export** — export position data for taxes and recordkeeping
+- **Price alerts** — client-side alerts when underlying price approaches strike
 
-## Features
+## Tech stack
 
-- Track covered calls and cash-secured puts
-- Open positions dashboard with real-time prices
-- Closed positions history
-- Premium yield / annualized return metrics
-- Real-time price alerts (client-side MVP)
-- CSV export for taxes / recordkeeping
-- Per-account portfolio tracking
-- Column visibility toggles and settings
+| Layer    | Tech                         |
+| -------- | ---------------------------- |
+| Frontend | React 19, Vite, TypeScript   |
+| Backend  | FastAPI, SQLAlchemy, Alembic |
+| Database | PostgreSQL (Supabase)        |
+| Auth     | Supabase Auth (JWT)          |
+| UI       | shadcn/ui, Tailwind CSS      |
 
-## Project Structure
+## Project structure
 
 ```
 wheelhouse/
-├── frontend/              # React SPA (Vite + TypeScript)
+├── frontend/              # React SPA
 │   ├── src/
 │   │   ├── components/    # shadcn/ui + custom components
 │   │   ├── contexts/      # AuthContext, SettingsContext
 │   │   ├── hooks/         # Custom React hooks
 │   │   ├── pages/         # Route pages
-│   │   ├── types/         # TypeScript types
-│   │   └── lib/           # Utilities
+│   │   ├── types/         # TypeScript interfaces
+│   │   └── lib/           # Utilities, API client
 │   └── package.json
-├── backend/               # FastAPI Python API
+├── backend/               # FastAPI API
 │   ├── app/
 │   │   ├── models/        # SQLAlchemy ORM models
 │   │   ├── schemas/       # Pydantic request/response schemas
@@ -45,35 +44,29 @@ wheelhouse/
 │   │   ├── config.py      # Pydantic settings
 │   │   └── database.py    # SQLAlchemy engine setup
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # pytest tests
+│   ├── tests/
 │   ├── requirements.txt
 │   └── alembic.ini
-├── .env.example
-└── README.md
+└── .env.example
 ```
 
-## Prerequisites
+## Local setup
+
+### Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- A [Supabase](https://supabase.com) project (for PostgreSQL and auth)
+- A [Supabase](https://supabase.com) project (free tier works)
 
-## Getting Started
-
-### 1. Clone the repo
+### 1. Clone and configure environment
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/johnvle/wheelhouse.git
 cd wheelhouse
-```
-
-### 2. Set up environment variables
-
-```bash
 cp .env.example .env
 ```
 
-Fill in your Supabase credentials (found in the Supabase dashboard under **Settings > API**):
+Fill in `.env` with your Supabase credentials (found under **Settings > API** in the Supabase dashboard):
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
@@ -81,25 +74,26 @@ SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_JWT_SECRET=your-jwt-secret
 DATABASE_URL=postgresql://postgres:your-password@db.your-project.supabase.co:5432/postgres
+
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-### 3. Backend
+### 2. Start the backend
 
 ```bash
 cd backend
 python -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-alembic upgrade head         # Run database migrations
+alembic upgrade head         # run database migrations
 uvicorn app.main:app --reload
 ```
 
-The API will be running at **http://localhost:8000** (docs at `/docs`).
+API runs at **http://localhost:8000** — interactive docs at [localhost:8000/docs](http://localhost:8000/docs).
 
-### 4. Frontend
+### 3. Start the frontend
 
 In a separate terminal:
 
@@ -109,7 +103,7 @@ npm install
 npm run dev
 ```
 
-The app will be running at **http://localhost:5173**.
+App runs at **http://localhost:5173**.
 
 ## Development
 
@@ -118,10 +112,10 @@ The app will be running at **http://localhost:5173**.
 ```bash
 cd backend && source .venv/bin/activate
 
-uvicorn app.main:app --reload          # Dev server
-pytest                                  # Run tests
-alembic revision --autogenerate -m ""   # Create migration
-alembic upgrade head                    # Apply migrations
+uvicorn app.main:app --reload          # dev server
+pytest                                  # run tests
+alembic revision --autogenerate -m ""   # create migration
+alembic upgrade head                    # apply migrations
 ```
 
 ### Frontend
@@ -129,8 +123,7 @@ alembic upgrade head                    # Apply migrations
 ```bash
 cd frontend
 
-npm run dev       # Dev server with HMR
-npm run build     # Type-check + production build
+npm run dev       # dev server with HMR
+npm run build     # type-check + production build
 npm run lint      # ESLint
-npm run preview   # Preview production build
 ```
