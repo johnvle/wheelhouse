@@ -2,7 +2,7 @@
 
 from datetime import date
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -16,6 +16,8 @@ from app.schemas.position import (
     PositionClose,
     PositionCreate,
     PositionResponse,
+    PositionRoll,
+    PositionRollResponse,
     PositionUpdate,
 )
 
@@ -188,3 +190,75 @@ def close_position(
     db.commit()
     db.refresh(position)
     return position
+
+
+@router.post("/{position_id}/roll", response_model=PositionRollResponse)
+def roll_position(
+    position_id: UUID,
+    body: PositionRoll,
+    user_id: UUID = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Look up the existing position
+    position = (
+        db.query(Position)
+        .filter(Position.id == position_id, Position.user_id == user_id)
+        .first()
+    )
+    if not position:
+        raise HTTPException(status_code=404, detail="Position not found")
+
+    if position.status == "CLOSED":
+        raise HTTPException(status_code=400, detail="Position is already closed")
+
+    # Validate new position's account_id belongs to user
+    account = (
+        db.query(Account)
+        .filter(Account.id == body.open.account_id, Account.user_id == user_id)
+        .first()
+    )
+    if not account:
+        raise HTTPException(
+            status_code=400,
+            detail="Account not found or does not belong to you",
+        )
+
+    # Generate shared roll_group_id
+    roll_group_id = uuid4()
+
+    # Close the old position
+    position.status = "CLOSED"
+    position.outcome = "ROLLED"
+    position.roll_group_id = roll_group_id
+    position.close_date = body.close.close_date
+    if body.close.close_price_per_share is not None:
+        position.close_price_per_share = body.close.close_price_per_share
+    if body.close.close_fees is not None:
+        position.close_fees = body.close.close_fees
+
+    # Create the new position
+    new_position = Position(
+        user_id=user_id,
+        account_id=body.open.account_id,
+        ticker=body.open.ticker.upper(),
+        type=body.open.type.value,
+        status="OPEN",
+        open_date=body.open.open_date,
+        expiration_date=body.open.expiration_date,
+        strike_price=body.open.strike_price,
+        contracts=body.open.contracts,
+        multiplier=body.open.multiplier,
+        premium_per_share=body.open.premium_per_share,
+        open_fees=body.open.open_fees,
+        notes=body.open.notes,
+        tags=body.open.tags,
+        roll_group_id=roll_group_id,
+    )
+    db.add(new_position)
+
+    # Single transaction commit
+    db.commit()
+    db.refresh(position)
+    db.refresh(new_position)
+
+    return {"closed": position, "opened": new_position}

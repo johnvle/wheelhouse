@@ -1386,3 +1386,543 @@ async def test_close_position_missing_required_fields(auth_headers: dict):
         assert resp.status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+# --- POST /api/v1/positions/{id}/roll ---
+
+
+def _roll_body(account_id: UUID, **close_overrides) -> dict:
+    close = {
+        "close_date": "2026-02-20",
+    }
+    close.update(close_overrides)
+    return {
+        "close": close,
+        "open": {
+            "account_id": str(account_id),
+            "ticker": "AAPL",
+            "type": "COVERED_CALL",
+            "open_date": "2026-02-21",
+            "expiration_date": "2026-03-21",
+            "strike_price": "155.00",
+            "contracts": 1,
+            "premium_per_share": "4.00",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_roll_position_success(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll closes old and creates new with shared roll_group_id."""
+    account = _make_account(user_id)
+    account_id = account.id
+    position = _make_position(user_id, account_id, status="OPEN")
+    now = datetime.now(timezone.utc)
+
+    mock_db = MagicMock()
+
+    # First query: Position lookup, Second query: Account lookup
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([account])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    refresh_call_count = 0
+
+    def fake_refresh(obj):
+        nonlocal refresh_call_count
+        refresh_call_count += 1
+        if refresh_call_count == 1:
+            # Refreshing the closed position
+            obj.status = "CLOSED"
+            obj.outcome = "ROLLED"
+            obj.close_date = date(2026, 2, 20)
+            obj.updated_at = now
+        else:
+            # Refreshing the new position
+            obj.id = uuid4()
+            obj.user_id = user_id
+            obj.account_id = account_id
+            obj.ticker = "AAPL"
+            obj.type = "COVERED_CALL"
+            obj.status = "OPEN"
+            obj.open_date = date(2026, 2, 21)
+            obj.expiration_date = date(2026, 3, 21)
+            obj.close_date = None
+            obj.strike_price = Decimal("155.00")
+            obj.contracts = 1
+            obj.multiplier = 100
+            obj.premium_per_share = Decimal("4.00")
+            obj.open_fees = Decimal("0")
+            obj.close_fees = Decimal("0")
+            obj.close_price_per_share = None
+            obj.outcome = None
+            obj.notes = None
+            obj.tags = None
+            obj.created_at = now
+            obj.updated_at = now
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(account_id),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Response has both closed and opened
+        assert "closed" in data
+        assert "opened" in data
+        # Old position is closed with ROLLED outcome
+        assert data["closed"]["status"] == "CLOSED"
+        assert data["closed"]["outcome"] == "ROLLED"
+        assert data["closed"]["close_date"] == "2026-02-20"
+        # New position is open
+        assert data["opened"]["status"] == "OPEN"
+        assert data["opened"]["ticker"] == "AAPL"
+        assert Decimal(str(data["opened"]["strike_price"])) == Decimal("155.00")
+        # Both share the same roll_group_id
+        assert data["closed"]["roll_group_id"] is not None
+        assert data["opened"]["roll_group_id"] is not None
+        assert data["closed"]["roll_group_id"] == data["opened"]["roll_group_id"]
+        # Single commit for atomicity
+        mock_db.commit.assert_called_once()
+        # New position was added
+        mock_db.add.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_with_close_price_and_fees(
+    user_id: UUID, auth_headers: dict
+):
+    """POST /api/v1/positions/{id}/roll accepts optional close_price_per_share and close_fees."""
+    account = _make_account(user_id)
+    account_id = account.id
+    position = _make_position(user_id, account_id, status="OPEN")
+    now = datetime.now(timezone.utc)
+
+    mock_db = MagicMock()
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([account])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    refresh_call_count = 0
+
+    def fake_refresh(obj):
+        nonlocal refresh_call_count
+        refresh_call_count += 1
+        if refresh_call_count == 1:
+            obj.status = "CLOSED"
+            obj.outcome = "ROLLED"
+            obj.close_date = date(2026, 2, 20)
+            obj.close_price_per_share = Decimal("1.50")
+            obj.close_fees = Decimal("0.65")
+            obj.updated_at = now
+        else:
+            obj.id = uuid4()
+            obj.user_id = user_id
+            obj.account_id = account_id
+            obj.ticker = "AAPL"
+            obj.type = "COVERED_CALL"
+            obj.status = "OPEN"
+            obj.open_date = date(2026, 2, 21)
+            obj.expiration_date = date(2026, 3, 21)
+            obj.close_date = None
+            obj.strike_price = Decimal("155.00")
+            obj.contracts = 1
+            obj.multiplier = 100
+            obj.premium_per_share = Decimal("4.00")
+            obj.open_fees = Decimal("0")
+            obj.close_fees = Decimal("0")
+            obj.close_price_per_share = None
+            obj.outcome = None
+            obj.notes = None
+            obj.tags = None
+            obj.created_at = now
+            obj.updated_at = now
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(
+                    account_id,
+                    close_price_per_share="1.50",
+                    close_fees="0.65",
+                ),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert Decimal(str(data["closed"]["close_price_per_share"])) == Decimal("1.50")
+        assert Decimal(str(data["closed"]["close_fees"])) == Decimal("0.65")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_not_found(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll returns 404 if position doesn't exist."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/roll",
+                json=_roll_body(uuid4()),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+        assert "position" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_other_user(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll returns 404 for another user's position."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/roll",
+                json=_roll_body(uuid4()),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_already_closed(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll returns 400 if position is already closed."""
+    account_id = uuid4()
+    position = _make_position(
+        user_id, account_id, status="CLOSED", outcome="EXPIRED"
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(account_id),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 400
+        assert "already closed" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_invalid_account(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll returns 400 if new position's account is invalid."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id, status="OPEN")
+
+    mock_db = MagicMock()
+    # First query: Position found, Second query: Account not found
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(uuid4()),  # Different account
+                headers=auth_headers,
+            )
+        assert resp.status_code == 400
+        assert "account" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_atomic_transaction(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll uses a single commit for atomicity."""
+    account = _make_account(user_id)
+    account_id = account.id
+    position = _make_position(user_id, account_id, status="OPEN")
+    now = datetime.now(timezone.utc)
+
+    mock_db = MagicMock()
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([account])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    refresh_call_count = 0
+
+    def fake_refresh(obj):
+        nonlocal refresh_call_count
+        refresh_call_count += 1
+        if refresh_call_count == 1:
+            obj.status = "CLOSED"
+            obj.outcome = "ROLLED"
+            obj.close_date = date(2026, 2, 20)
+            obj.updated_at = now
+        else:
+            obj.id = uuid4()
+            obj.user_id = user_id
+            obj.account_id = account_id
+            obj.ticker = "AAPL"
+            obj.type = "COVERED_CALL"
+            obj.status = "OPEN"
+            obj.open_date = date(2026, 2, 21)
+            obj.expiration_date = date(2026, 3, 21)
+            obj.close_date = None
+            obj.strike_price = Decimal("155.00")
+            obj.contracts = 1
+            obj.multiplier = 100
+            obj.premium_per_share = Decimal("4.00")
+            obj.open_fees = Decimal("0")
+            obj.close_fees = Decimal("0")
+            obj.close_price_per_share = None
+            obj.outcome = None
+            obj.notes = None
+            obj.tags = None
+            obj.created_at = now
+            obj.updated_at = now
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(account_id),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        # Exactly one commit (atomic)
+        assert mock_db.commit.call_count == 1
+        # Two refreshes (old + new position)
+        assert mock_db.refresh.call_count == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_new_ticker_uppercased(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll uppercases the new position's ticker."""
+    account = _make_account(user_id)
+    account_id = account.id
+    position = _make_position(user_id, account_id, status="OPEN")
+    now = datetime.now(timezone.utc)
+
+    mock_db = MagicMock()
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([account])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    refresh_call_count = 0
+
+    def fake_refresh(obj):
+        nonlocal refresh_call_count
+        refresh_call_count += 1
+        if refresh_call_count == 1:
+            obj.status = "CLOSED"
+            obj.outcome = "ROLLED"
+            obj.close_date = date(2026, 2, 20)
+            obj.updated_at = now
+        else:
+            obj.id = uuid4()
+            obj.user_id = user_id
+            obj.account_id = account_id
+            obj.status = "OPEN"
+            obj.open_date = date(2026, 2, 21)
+            obj.expiration_date = date(2026, 3, 21)
+            obj.close_date = None
+            obj.strike_price = Decimal("155.00")
+            obj.contracts = 1
+            obj.multiplier = 100
+            obj.premium_per_share = Decimal("4.00")
+            obj.open_fees = Decimal("0")
+            obj.close_fees = Decimal("0")
+            obj.close_price_per_share = None
+            obj.outcome = None
+            obj.notes = None
+            obj.tags = None
+            obj.created_at = now
+            obj.updated_at = now
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        body = _roll_body(account_id)
+        body["open"]["ticker"] = "tsla"  # lowercase
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=body,
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        # New position should have uppercased ticker
+        new_obj = mock_db.add.call_args[0][0]
+        assert new_obj.ticker == "TSLA"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_response_has_computed_fields(
+    user_id: UUID, auth_headers: dict
+):
+    """Roll response includes computed fields for both positions."""
+    account = _make_account(user_id)
+    account_id = account.id
+    position = _make_position(
+        user_id,
+        account_id,
+        status="OPEN",
+        strike_price=Decimal("150.00"),
+        contracts=1,
+        multiplier=100,
+        premium_per_share=Decimal("3.50"),
+        open_fees=Decimal("0.65"),
+        close_fees=Decimal("0"),
+    )
+    now = datetime.now(timezone.utc)
+
+    mock_db = MagicMock()
+    position_query = _FakeQuery([position])
+    account_query = _FakeQuery([account])
+    mock_db.query.side_effect = [position_query, account_query]
+
+    refresh_call_count = 0
+
+    def fake_refresh(obj):
+        nonlocal refresh_call_count
+        refresh_call_count += 1
+        if refresh_call_count == 1:
+            obj.status = "CLOSED"
+            obj.outcome = "ROLLED"
+            obj.close_date = date(2026, 2, 20)
+            obj.close_fees = Decimal("0.50")
+            obj.updated_at = now
+        else:
+            obj.id = uuid4()
+            obj.user_id = user_id
+            obj.account_id = account_id
+            obj.ticker = "AAPL"
+            obj.type = "COVERED_CALL"
+            obj.status = "OPEN"
+            obj.open_date = date(2026, 2, 21)
+            obj.expiration_date = date(2026, 3, 21)
+            obj.close_date = None
+            obj.strike_price = Decimal("155.00")
+            obj.contracts = 1
+            obj.multiplier = 100
+            obj.premium_per_share = Decimal("4.00")
+            obj.open_fees = Decimal("0")
+            obj.close_fees = Decimal("0")
+            obj.close_price_per_share = None
+            obj.outcome = None
+            obj.notes = None
+            obj.tags = None
+            obj.created_at = now
+            obj.updated_at = now
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/roll",
+                json=_roll_body(account_id, close_fees="0.50"),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Closed position has computed fields
+        closed = data["closed"]
+        assert "premium_total" in closed
+        assert "premium_net" in closed
+        assert "collateral" in closed
+        assert "annualized_roc" in closed
+        # Opened position has computed fields
+        opened = data["opened"]
+        assert "premium_total" in opened
+        assert "premium_net" in opened
+        assert "collateral" in opened
+        assert "dte" in opened
+        assert "annualized_roc" in opened
+        # Opened premium_total = 4.00 * 1 * 100 = 400
+        assert Decimal(str(opened["premium_total"])) == Decimal("400.00")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_roll_position_requires_auth():
+    """POST /api/v1/positions/{id}/roll without auth returns 401."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            f"/api/v1/positions/{uuid4()}/roll",
+            json=_roll_body(uuid4()),
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_roll_position_missing_required_fields(auth_headers: dict):
+    """POST /api/v1/positions/{id}/roll without required fields returns 422."""
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # Missing open fields
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/roll",
+                json={"close": {"close_date": "2026-02-20"}},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

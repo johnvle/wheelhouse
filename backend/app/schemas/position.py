@@ -53,6 +53,21 @@ class PositionClose(BaseModel):
     close_fees: Optional[Decimal] = None
 
 
+class PositionRollClose(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close_date: date
+    close_price_per_share: Optional[Decimal] = None
+    close_fees: Optional[Decimal] = None
+
+
+class PositionRoll(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close: PositionRollClose
+    open: PositionCreate
+
+
 class PositionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -118,3 +133,8 @@ class PositionResponse(BaseModel):
         if days_in_trade <= 0:
             return Decimal("0")
         return self.roc_period * Decimal(365) / Decimal(days_in_trade)
+
+
+class PositionRollResponse(BaseModel):
+    closed: PositionResponse
+    opened: PositionResponse

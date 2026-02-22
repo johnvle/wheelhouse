@@ -4,6 +4,9 @@ from app.schemas.position import (
     PositionClose,
     PositionCreate,
     PositionResponse,
+    PositionRoll,
+    PositionRollClose,
+    PositionRollResponse,
     PositionUpdate,
 )
 
@@ -13,6 +16,9 @@ __all__ = [
     "AccountResponse",
     "PositionClose",
     "PositionCreate",
+    "PositionRoll",
+    "PositionRollClose",
+    "PositionRollResponse",
     "PositionUpdate",
     "PositionResponse",
     "Broker",
