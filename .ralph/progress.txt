@@ -559,3 +559,49 @@
   - `flexRender()` is used to render both header and cell content from column definitions
   - Separate `openPositionColumns` export allows reuse and customization for different table views
 ---
+
+## 2026-02-22 - US-023
+- What was implemented:
+  - Created `AddPositionDialog` component with full form: account (Select), ticker (auto-uppercased Input), type (Select: CC/CSP), open date, expiration date, strike price, contracts, premium per share
+  - Optional fields: multiplier (default 100), open fees, notes (Textarea), tags (comma-separated Input)
+  - Client-side validation with inline error messages for all required fields
+  - Created `useCreatePosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Integrated "Add Position" button into `OpenPositions.tsx` header, opens dialog
+  - Dialog closes on successful submission; positions table auto-refreshes via query invalidation
+  - Added shadcn/ui Textarea component for notes field
+  - TypeScript typecheck and Vite build both pass
+- Files changed:
+  - `frontend/src/components/AddPositionDialog.tsx` (new — modal form with validation)
+  - `frontend/src/hooks/useCreatePosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added Add Position button + dialog integration)
+  - `frontend/src/components/ui/textarea.tsx` (new — shadcn/ui Textarea)
+- **Learnings:**
+  - Form dialogs: `useEffect` on `[open, accounts]` resets all form state when dialog opens (prevents stale data)
+  - Ticker auto-uppercasing in `onChange` gives instant visual feedback (vs only on submit)
+  - `useMutation` + `onSuccess` callback in `.mutate()` call allows closing dialog on success while keeping mutation hook reusable
+  - `.ralph/prd.json` is gitignored — use `git add -f` to force-add it
+  - Tags as comma-separated string → `split(",").map(trim).filter(Boolean)` is a clean pattern for optional array fields
+  - Validation pattern: separate `validate()` function sets `validationErrors` state object keyed by field name; cleared on dialog open
+---
+
+## 2026-02-22 - US-024
+- What was implemented:
+  - Created `ClosePositionDialog` component with fields: outcome (Select: Expired/Assigned/Closed Early), close date (default today), close price per share (optional), close fees (optional)
+  - Created `useClosePosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Added "Close" action button to the Open Positions table via a new actions column
+  - `openPositionColumns` now accepts an options object with `onClose` callback to render the action button
+  - Close dialog triggered from row action button; on success, position disappears from open list (query invalidation)
+  - Error states displayed in the dialog (e.g., trying to close already-closed position)
+  - Form validates close date is required, close price/fees are non-negative
+- Files changed:
+  - `frontend/src/components/ClosePositionDialog.tsx` (new — close position modal)
+  - `frontend/src/hooks/useClosePosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added actions column support)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — wired close dialog and action)
+- **Learnings:**
+  - `openPositionColumns` signature evolved from `(accountNames)` to `(options)` with backwards-compatible detection using `"onClose" in obj`
+  - Actions column uses `id: "actions"` (no `accessorKey`) with `enableSorting: false` to prevent sort on the column
+  - `row.original` in TanStack Table cell renderer gives access to the full data object (Position) for passing to callbacks
+  - `useMutation` with `{ id, body }` param object cleanly handles mutations that need both a resource ID and request body
+  - Close dialog resets state on `open` change via `useEffect([open])` to handle reopening for different positions
+---

@@ -365,7 +365,7 @@
     "phase": 2,
     "priority": 24,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-025",

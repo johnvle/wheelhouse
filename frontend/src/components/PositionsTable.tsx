@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { useState } from "react";
 import type { Position } from "@/types/position";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -33,10 +34,26 @@ interface PositionsTableProps {
   columns: ColumnDef<Position>[];
 }
 
+interface OpenPositionColumnOptions {
+  accountNames?: Record<string, string>;
+  onClose?: (position: Position) => void;
+}
+
 export function openPositionColumns(
-  accountNames?: Record<string, string>
+  accountNamesOrOptions?: Record<string, string> | OpenPositionColumnOptions
 ): ColumnDef<Position>[] {
-  return [
+  // Support both old signature (just accountNames) and new options object
+  let accountNames: Record<string, string> | undefined;
+  let onClose: ((position: Position) => void) | undefined;
+
+  if (accountNamesOrOptions && "onClose" in accountNamesOrOptions) {
+    accountNames = accountNamesOrOptions.accountNames;
+    onClose = accountNamesOrOptions.onClose;
+  } else {
+    accountNames = accountNamesOrOptions as Record<string, string> | undefined;
+  }
+
+  const cols: ColumnDef<Position>[] = [
     {
       accessorKey: "account_id",
       header: "Account",
@@ -99,6 +116,26 @@ export function openPositionColumns(
       cell: ({ getValue }) => pctFmt.format(getValue<number>()),
     },
   ];
+
+  if (onClose) {
+    const closeFn = onClose;
+    cols.push({
+      id: "actions",
+      header: "",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => closeFn(row.original)}
+        >
+          Close
+        </Button>
+      ),
+    });
+  }
+
+  return cols;
 }
 
 export default function PositionsTable({

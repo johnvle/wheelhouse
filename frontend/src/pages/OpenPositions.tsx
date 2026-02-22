@@ -2,33 +2,61 @@ import { useMemo, useState } from "react";
 import { usePositions } from "@/hooks/usePositions";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCreatePosition } from "@/hooks/useCreatePosition";
+import { useClosePosition } from "@/hooks/useClosePosition";
 import PositionsTable, {
   openPositionColumns,
 } from "@/components/PositionsTable";
 import AddPositionDialog from "@/components/AddPositionDialog";
+import ClosePositionDialog from "@/components/ClosePositionDialog";
 import { Button } from "@/components/ui/button";
-import type { PositionCreateBody } from "@/lib/api";
+import type { PositionCreateBody, PositionCloseBody } from "@/lib/api";
+import type { Position } from "@/types/position";
 
 export default function OpenPositions() {
   const { data: positions, isLoading, error } = usePositions({ status: "OPEN" });
   const { data: accounts } = useAccounts();
   const createPosition = useCreatePosition();
+  const closePositionMutation = useClosePosition();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closingPosition, setClosingPosition] = useState<Position | null>(null);
 
   const accountNames = useMemo(() => {
     if (!accounts) return {};
     return Object.fromEntries(accounts.map((a) => [a.id, a.name]));
   }, [accounts]);
 
-  const columns = useMemo(() => openPositionColumns(accountNames), [accountNames]);
+  const columns = useMemo(
+    () =>
+      openPositionColumns({
+        accountNames,
+        onClose: (position) => {
+          setClosingPosition(position);
+          setCloseDialogOpen(true);
+        },
+      }),
+    [accountNames]
+  );
 
-  function handleSubmit(data: PositionCreateBody) {
+  function handleAddSubmit(data: PositionCreateBody) {
     createPosition.mutate(data, {
       onSuccess: () => {
-        setDialogOpen(false);
+        setAddDialogOpen(false);
       },
     });
+  }
+
+  function handleCloseSubmit(id: string, body: PositionCloseBody) {
+    closePositionMutation.mutate(
+      { id, body },
+      {
+        onSuccess: () => {
+          setCloseDialogOpen(false);
+          setClosingPosition(null);
+        },
+      }
+    );
   }
 
   return (
@@ -40,7 +68,7 @@ export default function OpenPositions() {
             Track your active option positions
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>Add Position</Button>
+        <Button onClick={() => setAddDialogOpen(true)}>Add Position</Button>
       </div>
 
       <div className="mt-6">
@@ -66,12 +94,24 @@ export default function OpenPositions() {
       </div>
 
       <AddPositionDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
         accounts={accounts ?? []}
-        onSubmit={handleSubmit}
+        onSubmit={handleAddSubmit}
         submitting={createPosition.isPending}
         error={createPosition.error?.message ?? null}
+      />
+
+      <ClosePositionDialog
+        open={closeDialogOpen}
+        onOpenChange={(open) => {
+          setCloseDialogOpen(open);
+          if (!open) setClosingPosition(null);
+        }}
+        position={closingPosition}
+        onSubmit={handleCloseSubmit}
+        submitting={closePositionMutation.isPending}
+        error={closePositionMutation.error?.message ?? null}
       />
     </div>
   );
