@@ -1,0 +1,546 @@
+[
+  {
+    "id": "US-001",
+    "title": "Supabase project and database setup",
+    "description": "As a developer, I want a Supabase project provisioned with PostgreSQL so that the app has a database and auth backend ready.",
+    "acceptance_criteria": [
+      "Supabase project is created with PostgreSQL database accessible via connection string",
+      "Supabase Auth is enabled with email/password sign-up",
+      "Environment variables (SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL) are documented in .env.example"
+    ],
+    "phase": 1,
+    "priority": 1,
+    "tags": ["backend", "infra"],
+    "passes": true
+  },
+  {
+    "id": "US-002",
+    "title": "Alembic migration for accounts table",
+    "description": "As a developer, I want an Alembic migration that creates the `accounts` table so that users can store brokerage account metadata.",
+    "acceptance_criteria": [
+      "Migration creates `accounts` table with columns: id (uuid PK), user_id (uuid FK → auth.users.id NOT NULL), name (text NOT NULL), broker (text NOT NULL), tax_treatment (text nullable), created_at (timestamptz), updated_at (timestamptz)",
+      "Running `alembic upgrade head` applies cleanly on a fresh database",
+      "Running `alembic downgrade -1` drops the table"
+    ],
+    "phase": 1,
+    "priority": 2,
+    "tags": ["backend", "database"],
+    "passes": true
+  },
+  {
+    "id": "US-003",
+    "title": "Alembic migration for positions table",
+    "description": "As a developer, I want an Alembic migration that creates the `positions` table with all required columns and indexes.",
+    "acceptance_criteria": [
+      "Migration creates `positions` table with all columns from the spec: id, user_id, account_id (FK → accounts.id), ticker, type (CHECK: COVERED_CALL, CASH_SECURED_PUT), status (CHECK: OPEN, CLOSED, default OPEN), open_date, expiration_date, close_date, strike_price (numeric), contracts (int), multiplier (int default 100), premium_per_share (numeric), open_fees (numeric default 0), close_fees (numeric default 0), close_price_per_share (numeric nullable), outcome (CHECK: EXPIRED, ASSIGNED, CLOSED_EARLY, ROLLED), roll_group_id (uuid nullable), notes (text nullable), tags (text[] nullable), created_at, updated_at",
+      "Indexes exist on (user_id, status), (user_id, ticker), (user_id, expiration_date)",
+      "Migration applies and rolls back cleanly"
+    ],
+    "phase": 1,
+    "priority": 3,
+    "tags": ["backend", "database"],
+    "passes": true
+  },
+  {
+    "id": "US-004",
+    "title": "SQLAlchemy models for accounts and positions",
+    "description": "As a developer, I want SQLAlchemy 2.0 ORM models for `accounts` and `positions` so that the API layer can query and mutate data.",
+    "acceptance_criteria": [
+      "Account model maps all columns from the accounts table",
+      "Position model maps all columns from the positions table including the text[] tags field",
+      "Relationships are defined: Account.positions (one-to-many), Position.account (many-to-one)",
+      "Models use mapped_column() style (SQLAlchemy 2.0 declarative)"
+    ],
+    "phase": 1,
+    "priority": 4,
+    "tags": ["backend", "database"],
+    "passes": true
+  },
+  {
+    "id": "US-005",
+    "title": "FastAPI auth middleware (Supabase JWT verification)",
+    "description": "As a developer, I want middleware that verifies Supabase JWTs on every request (except /health) so that all API endpoints are protected.",
+    "acceptance_criteria": [
+      "Requests without Authorization header receive 401",
+      "Requests with invalid/expired JWT receive 401",
+      "Valid JWT extracts user_id and makes it available via a dependency (e.g., get_current_user)",
+      "GET /health is excluded from auth checks",
+      "JWT verification uses Supabase JWKS or shared secret"
+    ],
+    "phase": 1,
+    "priority": 5,
+    "tags": ["backend", "auth"],
+    "passes": true
+  },
+  {
+    "id": "US-006",
+    "title": "Pydantic schemas for accounts and positions",
+    "description": "As a developer, I want Pydantic v2 request/response schemas so that API inputs are validated and outputs are serialized consistently.",
+    "acceptance_criteria": [
+      "AccountCreate, AccountUpdate, AccountResponse schemas exist",
+      "PositionCreate, PositionUpdate, PositionResponse schemas exist",
+      "PositionResponse includes computed fields: premium_total, premium_net, collateral, roc_period, dte, annualized_roc",
+      "Enums or Literal types enforce valid values for type, status, outcome, broker",
+      "All schemas use Pydantic v2 model_config"
+    ],
+    "phase": 1,
+    "priority": 6,
+    "tags": ["backend", "api"],
+    "passes": true
+  },
+  {
+    "id": "US-007",
+    "title": "Accounts CRUD endpoints",
+    "description": "As a user, I want to create, list, and update my brokerage accounts so that I can organize positions by account.",
+    "acceptance_criteria": [
+      "GET /api/v1/accounts returns only the authenticated user's accounts",
+      "POST /api/v1/accounts creates an account with name, broker, and optional tax_treatment; returns the created account",
+      "PATCH /api/v1/accounts/{id} updates name, broker, or tax_treatment; returns 404 if account doesn't exist or belongs to another user",
+      "All responses use AccountResponse schema"
+    ],
+    "phase": 1,
+    "priority": 7,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-008",
+    "title": "Create position endpoint",
+    "description": "As a user, I want to create a new option position so that I can track a trade I've opened.",
+    "acceptance_criteria": [
+      "POST /api/v1/positions creates a position with all required fields (ticker, type, account_id, open_date, expiration_date, strike_price, contracts, premium_per_share)",
+      "ticker is uppercased before storage",
+      "account_id must belong to the authenticated user; returns 400 otherwise",
+      "Response includes computed fields (premium_total, collateral, roc_period, dte, annualized_roc)",
+      "Optional fields: multiplier, open_fees, notes, tags"
+    ],
+    "phase": 1,
+    "priority": 8,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-009",
+    "title": "List positions endpoint with filtering and sorting",
+    "description": "As a user, I want to list my positions with filters (status, ticker, type, account, expiration range) and sorting so I can find specific trades.",
+    "acceptance_criteria": [
+      "GET /api/v1/positions returns only the authenticated user's positions",
+      "Supports query params: status, ticker, type, account_id, expiration_start, expiration_end, sort, order (asc/desc)",
+      "Default sort is by open_date descending",
+      "Each position in the response includes computed fields",
+      "Returns empty list (not error) when no positions match"
+    ],
+    "phase": 1,
+    "priority": 9,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-010",
+    "title": "Update position endpoint",
+    "description": "As a user, I want to update fields on an existing position so that I can correct data entry mistakes.",
+    "acceptance_criteria": [
+      "PATCH /api/v1/positions/{id} updates any subset of editable fields",
+      "Returns 404 if position doesn't exist or belongs to another user",
+      "Cannot change user_id",
+      "updated_at timestamp is refreshed on every update",
+      "Response includes recalculated computed fields"
+    ],
+    "phase": 1,
+    "priority": 10,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-011",
+    "title": "Close position endpoint",
+    "description": "As a user, I want to close an open position by setting the outcome, close date, and optional close price so that the position moves to history.",
+    "acceptance_criteria": [
+      "POST /api/v1/positions/{id}/close accepts: outcome (EXPIRED, ASSIGNED, CLOSED_EARLY), close_date, close_price_per_share (optional), close_fees (optional)",
+      "Sets status to CLOSED",
+      "Returns 400 if position is already closed",
+      "Returns 404 if position doesn't exist or belongs to another user",
+      "Response includes updated computed fields including premium_net with close_fees"
+    ],
+    "phase": 2,
+    "priority": 11,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-012",
+    "title": "Roll position endpoint",
+    "description": "As a user, I want to roll a position (close existing + open new linked position) in a single API call so that rolled trades are tracked together.",
+    "acceptance_criteria": [
+      "POST /api/v1/positions/{id}/roll accepts close fields for the old position and open fields for the new position",
+      "Old position is closed with outcome = ROLLED",
+      "New position is created with a shared roll_group_id (generated UUID)",
+      "Old position also gets the same roll_group_id",
+      "Both operations happen atomically (single DB transaction)",
+      "Returns both the closed and new position in the response"
+    ],
+    "phase": 2,
+    "priority": 12,
+    "tags": ["backend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-013",
+    "title": "Dashboard summary endpoint",
+    "description": "As a user, I want a summary of my trading metrics (total premium, open count, upcoming expirations) so I can see portfolio-level stats.",
+    "acceptance_criteria": [
+      "GET /api/v1/dashboard/summary returns: total_premium_collected, premium_mtd, open_position_count, upcoming_expirations (positions expiring within 7 days)",
+      "Supports optional start/end date query params to scope the date range",
+      "Calculations use premium_net (premium_total - open_fees - close_fees) for closed positions and premium_total for open",
+      "Returns zeroes (not errors) when no data exists"
+    ],
+    "phase": 3,
+    "priority": 13,
+    "tags": ["backend", "api", "dashboard"],
+    "passes": false
+  },
+  {
+    "id": "US-014",
+    "title": "Dashboard by-ticker endpoint",
+    "description": "As a user, I want per-ticker stats (premium, trade count, average annualized ROC) so I can see which tickers are most profitable.",
+    "acceptance_criteria": [
+      "GET /api/v1/dashboard/by-ticker returns an array of objects: { ticker, total_premium, trade_count, avg_annualized_roc }",
+      "Supports optional start/end date query params",
+      "Results are sorted by total_premium descending by default",
+      "Only includes tickers with at least one position in the date range"
+    ],
+    "phase": 3,
+    "priority": 14,
+    "tags": ["backend", "api", "dashboard"],
+    "passes": false
+  },
+  {
+    "id": "US-015",
+    "title": "Frontend: Install and configure Tailwind CSS + shadcn/ui",
+    "description": "As a developer, I want Tailwind CSS and shadcn/ui installed and configured in the Vite + React project so that all UI components use a consistent design system.",
+    "acceptance_criteria": [
+      "Tailwind CSS is installed and configured with the project's content paths",
+      "shadcn/ui is initialized (components.json exists, cn utility is available)",
+      "A test component (e.g., Button) renders correctly with Tailwind styles",
+      "Dark mode is not required (light mode only)"
+    ],
+    "phase": 1,
+    "priority": 15,
+    "tags": ["frontend", "setup"],
+    "passes": false
+  },
+  {
+    "id": "US-016",
+    "title": "Frontend: Install and configure TanStack Table + TanStack Query",
+    "description": "As a developer, I want TanStack Table and TanStack Query set up so that the app can render data tables and manage server state.",
+    "acceptance_criteria": [
+      "TanStack Table (@tanstack/react-table) is installed",
+      "TanStack Query (@tanstack/react-query) is installed with a QueryClientProvider wrapping the app",
+      "A basic query hook (e.g., usePositions) can fetch from the API and return typed data",
+      "React Query Devtools are available in development"
+    ],
+    "phase": 1,
+    "priority": 16,
+    "tags": ["frontend", "setup"],
+    "passes": false
+  },
+  {
+    "id": "US-017",
+    "title": "Frontend: Routing and layout shell",
+    "description": "As a user, I want a navigation layout with routes for Open Positions, History, Dashboard, and Settings so I can move between pages.",
+    "acceptance_criteria": [
+      "React Router (or equivalent) is configured with routes: / (Open Positions), /history, /dashboard, /settings",
+      "A persistent sidebar or top nav shows links to all pages with active state highlighting",
+      "A layout shell wraps all authenticated pages with the nav and a content area",
+      "Unauthenticated users are redirected to /login"
+    ],
+    "phase": 1,
+    "priority": 17,
+    "tags": ["frontend", "setup"],
+    "passes": false
+  },
+  {
+    "id": "US-018",
+    "title": "Frontend: Supabase Auth client setup",
+    "description": "As a developer, I want the Supabase JS client initialized in the frontend so that auth operations (sign in, sign out, token refresh) work.",
+    "acceptance_criteria": [
+      "Supabase JS client is initialized with SUPABASE_URL and SUPABASE_ANON_KEY from env vars",
+      "An AuthProvider context exposes: user, session, signIn, signOut, loading state",
+      "Access token is automatically attached to API requests via an Axios/fetch interceptor",
+      "Token refresh is handled automatically by the Supabase client"
+    ],
+    "phase": 1,
+    "priority": 18,
+    "tags": ["frontend", "auth"],
+    "passes": false
+  },
+  {
+    "id": "US-019",
+    "title": "Frontend: Login page",
+    "description": "As a user, I want a login page where I can sign in with email and password so that I can access my data.",
+    "acceptance_criteria": [
+      "Login page has email and password fields with a Sign In button",
+      "Successful login redirects to / (Open Positions)",
+      "Failed login shows an error message (invalid credentials, network error)",
+      "Page is accessible at /login and is the default for unauthenticated users"
+    ],
+    "phase": 1,
+    "priority": 19,
+    "tags": ["frontend", "auth"],
+    "passes": false
+  },
+  {
+    "id": "US-020",
+    "title": "Frontend: API client with auth interceptor",
+    "description": "As a developer, I want a configured API client (Axios or fetch wrapper) that automatically includes the Supabase JWT in requests to the FastAPI backend.",
+    "acceptance_criteria": [
+      "API client has a base URL pointing to the FastAPI backend",
+      "Every request includes Authorization: Bearer <token> header using the current Supabase session token",
+      "401 responses trigger a token refresh attempt; if refresh fails, user is redirected to /login",
+      "Typed API functions exist for each endpoint (e.g., getPositions, createPosition, closePosition)"
+    ],
+    "phase": 1,
+    "priority": 20,
+    "tags": ["frontend", "api"],
+    "passes": false
+  },
+  {
+    "id": "US-021",
+    "title": "Frontend: Account management UI",
+    "description": "As a user, I want to view, add, and edit my brokerage accounts so I can associate positions with the correct account.",
+    "acceptance_criteria": [
+      "Settings page (or a dedicated section) lists all accounts with name, broker, and tax treatment",
+      "An Add Account form/modal allows creating a new account with name, broker (dropdown: robinhood, merrill, other), and optional tax treatment",
+      "Inline edit or edit modal allows updating account fields",
+      "Account list refreshes after add/edit operations"
+    ],
+    "phase": 2,
+    "priority": 21,
+    "tags": ["frontend", "accounts"],
+    "passes": false
+  },
+  {
+    "id": "US-022",
+    "title": "Frontend: Open Positions table",
+    "description": "As a user, I want to see a table of all my open positions with key columns so I can monitor my active trades.",
+    "acceptance_criteria": [
+      "Table displays open positions with columns: ticker, type, account, strike, contracts, premium/share, premium total, collateral, open date, expiration, DTE, annualized ROC",
+      "Table uses TanStack Table with sorting on all columns",
+      "Table has a sticky header that remains visible on scroll",
+      "Empty state shows a message prompting the user to add their first position",
+      "Data is fetched via TanStack Query with loading and error states"
+    ],
+    "phase": 2,
+    "priority": 22,
+    "tags": ["frontend", "positions"],
+    "passes": false
+  },
+  {
+    "id": "US-023",
+    "title": "Frontend: Add Position modal",
+    "description": "As a user, I want a modal form to add a new option position so I can track a trade I've just opened.",
+    "acceptance_criteria": [
+      "Modal has fields: account (dropdown), ticker (text, auto-uppercased), type (COVERED_CALL / CASH_SECURED_PUT), open date, expiration date, strike price, contracts, premium per share",
+      "Optional fields: multiplier (default 100), open fees, notes, tags",
+      "Form validates required fields and shows inline errors",
+      "On submit, calls POST /api/v1/positions and closes the modal on success",
+      "Positions table refreshes after successful creation"
+    ],
+    "phase": 2,
+    "priority": 23,
+    "tags": ["frontend", "positions"],
+    "passes": false
+  },
+  {
+    "id": "US-024",
+    "title": "Frontend: Close Position modal",
+    "description": "As a user, I want a modal to close an open position by selecting the outcome so the position moves to history.",
+    "acceptance_criteria": [
+      "Modal is triggered from a row action (button or context menu) on the Open Positions table",
+      "Fields: outcome (EXPIRED, ASSIGNED, CLOSED_EARLY), close date (default today), close price per share (optional), close fees (optional)",
+      "On submit, calls POST /api/v1/positions/{id}/close",
+      "Positions table refreshes after successful close (position disappears from open list)",
+      "Error states are displayed (e.g., trying to close already-closed position)"
+    ],
+    "phase": 2,
+    "priority": 24,
+    "tags": ["frontend", "positions"],
+    "passes": false
+  },
+  {
+    "id": "US-025",
+    "title": "Frontend: Roll Position modal (two-step)",
+    "description": "As a user, I want a two-step modal to roll a position: step 1 closes the old position, step 2 opens a new one prefilled with the old position's data.",
+    "acceptance_criteria": [
+      "Step 1: Close form (same fields as Close Position modal) with outcome pre-set to ROLLED",
+      "Step 2: Open form (same fields as Add Position modal) prefilled with the old position's ticker, type, account, and contracts",
+      "User can modify any prefilled fields before submitting",
+      "On submit, calls POST /api/v1/positions/{id}/roll with both close and open payloads",
+      "Success shows confirmation and refreshes the positions table"
+    ],
+    "phase": 2,
+    "priority": 25,
+    "tags": ["frontend", "positions"],
+    "passes": false
+  },
+  {
+    "id": "US-026",
+    "title": "Frontend: History page (closed positions table)",
+    "description": "As a user, I want a History page showing all closed positions so I can review past trades.",
+    "acceptance_criteria": [
+      "Table displays closed positions with columns: ticker, type, account, strike, contracts, premium total, premium net, open date, close date, outcome, annualized ROC",
+      "Supports filters: ticker search, type, account, outcome, date range",
+      "Sorting works on all columns",
+      "Rolled positions show a visual indicator linking them to their roll group",
+      "Data fetched via TanStack Query with status=CLOSED filter"
+    ],
+    "phase": 2,
+    "priority": 26,
+    "tags": ["frontend", "positions", "history"],
+    "passes": false
+  },
+  {
+    "id": "US-027",
+    "title": "Frontend: Dashboard summary widgets",
+    "description": "As a user, I want a dashboard page showing high-level metrics (total premium, open count, upcoming expirations) so I can assess my portfolio at a glance.",
+    "acceptance_criteria": [
+      "Dashboard page displays cards/widgets: Total Premium Collected, Premium MTD, Open Position Count, Upcoming Expirations (next 7 days)",
+      "Each widget shows the value prominently with appropriate formatting (currency for premiums, count for others)",
+      "Data is fetched from GET /api/v1/dashboard/summary",
+      "Loading skeletons display while data is being fetched",
+      "Date range filter allows scoping the summary to a custom period"
+    ],
+    "phase": 3,
+    "priority": 27,
+    "tags": ["frontend", "dashboard"],
+    "passes": false
+  },
+  {
+    "id": "US-028",
+    "title": "Frontend: Ticker summary table on dashboard",
+    "description": "As a user, I want a per-ticker breakdown on the dashboard showing premium and ROC stats so I can see which underlyings are most profitable.",
+    "acceptance_criteria": [
+      "Table or card grid shows each ticker with: total premium, trade count, average annualized ROC",
+      "Sorted by total premium descending by default",
+      "Data is fetched from GET /api/v1/dashboard/by-ticker",
+      "Respects the same date range filter as the summary widgets",
+      "Empty state shows a message when no closed positions exist"
+    ],
+    "phase": 3,
+    "priority": 28,
+    "tags": ["frontend", "dashboard"],
+    "passes": false
+  },
+  {
+    "id": "US-029",
+    "title": "Backend: Yahoo Finance price proxy endpoint",
+    "description": "As a user, I want the backend to fetch current stock prices so that the frontend can display live prices without exposing API keys.",
+    "acceptance_criteria": [
+      "GET /api/v1/prices?tickers=AAPL,TSLA returns current price and change % for each ticker",
+      "Responses are cached for 60 seconds to avoid rate limiting",
+      "Invalid tickers return null values (not errors) in the response",
+      "Endpoint requires authentication",
+      "Response includes a timestamp for when the price was last fetched"
+    ],
+    "phase": 4,
+    "priority": 29,
+    "tags": ["backend", "api", "prices"],
+    "passes": false
+  },
+  {
+    "id": "US-030",
+    "title": "Frontend: Live price column and polling",
+    "description": "As a user, I want to see current stock prices in the Open Positions table, refreshed every 60 seconds, so I can monitor positions relative to market prices.",
+    "acceptance_criteria": [
+      "Open Positions table has a 'Current Price' column showing the live price and change %",
+      "On page load, distinct tickers from open positions are collected and fetched via GET /api/v1/prices",
+      "Prices auto-refresh every 60 seconds via TanStack Query polling (refetchInterval)",
+      "A stale indicator appears if the last price update is > 5 minutes old",
+      "Price near strike highlights: CC where price >= strike * 0.95; CSP where price <= strike * 1.05 (thresholds from settings)"
+    ],
+    "phase": 4,
+    "priority": 30,
+    "tags": ["frontend", "prices"],
+    "passes": false
+  },
+  {
+    "id": "US-031",
+    "title": "Frontend: Client-side alerts and alert banner",
+    "description": "As a user, I want in-app alerts for expiring positions and prices near strike so I can take action before it's too late.",
+    "acceptance_criteria": [
+      "Alert banner appears at the top of the page when alerts are active",
+      "Expiration alert: triggers when a position expires within N days (default 7, configurable in settings)",
+      "Price near strike alert: triggers for CC when price >= strike * (1 - threshold) and CSP when price <= strike * (1 + threshold)",
+      "Stale price alert: triggers when price data is older than 5 minutes",
+      "Alerts are dismissible but reappear on next price refresh if conditions still met",
+      "Alert evaluation runs on every price refresh cycle"
+    ],
+    "phase": 4,
+    "priority": 31,
+    "tags": ["frontend", "alerts"],
+    "passes": false
+  },
+  {
+    "id": "US-032",
+    "title": "Backend: CSV export endpoint",
+    "description": "As a user, I want to export my positions as a CSV file so I can analyze data in Excel or Google Sheets.",
+    "acceptance_criteria": [
+      "GET /api/v1/export/positions.csv returns a downloadable CSV file",
+      "Supports query params: start, end, status, ticker to filter exported data",
+      "CSV includes all position fields plus computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc)",
+      "Content-Disposition header triggers a file download in the browser",
+      "Empty result set returns a CSV with headers only"
+    ],
+    "phase": 5,
+    "priority": 32,
+    "tags": ["backend", "api", "export"],
+    "passes": false
+  },
+  {
+    "id": "US-033",
+    "title": "Frontend: CSV export button",
+    "description": "As a user, I want an Export to CSV button that downloads my positions with current filters applied.",
+    "acceptance_criteria": [
+      "Export button is visible on both Open Positions and History pages",
+      "Clicking the button triggers a download of GET /api/v1/export/positions.csv with the current page's filters as query params",
+      "Button shows a loading state while the download is in progress",
+      "Downloaded file has a descriptive filename (e.g., positions_2024-01-15.csv)"
+    ],
+    "phase": 5,
+    "priority": 33,
+    "tags": ["frontend", "export"],
+    "passes": false
+  },
+  {
+    "id": "US-034",
+    "title": "Frontend: Settings page (alert thresholds and preferences)",
+    "description": "As a user, I want a Settings page where I can configure alert thresholds and display preferences.",
+    "acceptance_criteria": [
+      "Settings page is accessible at /settings",
+      "Configurable fields: expiration warning days (default 7), price near strike threshold (default 0.05 = 5%), stale price minutes (default 5)",
+      "Settings are persisted in localStorage (no backend storage needed for 1-2 users)",
+      "Changes take effect immediately on the Open Positions page without a page reload",
+      "Settings page also includes the account management section (US-021)"
+    ],
+    "phase": 5,
+    "priority": 34,
+    "tags": ["frontend", "settings"],
+    "passes": false
+  },
+  {
+    "id": "US-035",
+    "title": "Frontend: Column visibility toggles and UX polish",
+    "description": "As a user, I want to show/hide columns in the positions table and have a polished filtering experience.",
+    "acceptance_criteria": [
+      "A column visibility dropdown lets users toggle individual columns on/off",
+      "Column visibility preferences are persisted in localStorage",
+      "Filter inputs (ticker search, type, account, date range) are in a filter bar above the table",
+      "Table has responsive horizontal scrolling for many columns",
+      "All tables have consistent styling via shadcn/ui data table patterns"
+    ],
+    "phase": 5,
+    "priority": 35,
+    "tags": ["frontend", "ux"],
+    "passes": false
+  }
+]
