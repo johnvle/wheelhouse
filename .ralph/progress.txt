@@ -752,3 +752,50 @@
   - `refetchInterval: 60_000` in useQuery enables automatic polling every 60 seconds without manual setInterval
   - Price column uses conditional styling: yellow bg for near-strike, orange "!" for stale, green/red for change %
 ---
+
+## 2026-02-22 - US-031
+- What was implemented:
+  - Created `useAlerts` hook (`src/hooks/useAlerts.ts`) that evaluates positions + prices to produce three alert types: expiration (within 7 days), near-strike (5% threshold), stale price (>5 min)
+  - Each alert has a unique ID: `exp-{positionId}`, `near-{positionId}`, `stale-{ticker}`
+  - Dismissal tracked in state via `Set<string>`; dismissed alerts reset when price data refreshes (new `priceFingerprint`)
+  - Price fingerprint computed from all `last_fetched` timestamps joined — detects price refresh cycles
+  - Created `AlertBanner` component (`src/components/AlertBanner.tsx`) with color-coded alert rows: orange for expiration, yellow for near-strike, gray for stale price
+  - Each alert is individually dismissible (x button); "Dismiss all" button when >1 alert
+  - Banner renders at top of Open Positions page between header and table
+  - Alert evaluation runs on every price refresh via `useMemo` dependency on `priceMap`
+  - Default thresholds: 7 days expiration, 0.05 near-strike, 5 min stale — structured as constants for US-034 settings override
+- Files changed:
+  - `frontend/src/hooks/useAlerts.ts` (new — alert computation + dismiss logic)
+  - `frontend/src/components/AlertBanner.tsx` (new — alert banner UI)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useAlerts + AlertBanner)
+- **Learnings:**
+  - Price fingerprint pattern: join all `last_fetched` timestamps to detect when price data actually refreshes vs just re-renders
+  - `useRef` for previous fingerprint avoids resetting dismissals on initial render (only reset when fingerprint actually changes)
+  - Stale price alerts deduplicated per ticker using a `Set` — multiple positions with same ticker only produce one stale alert
+  - Alert type constants (thresholds) kept as module-level constants for easy override in US-034 settings feature
+  - Near-strike formula: CC uses `price >= strike * (1 - threshold)`, CSP uses `price <= strike * (1 + threshold)` — matches the PositionsTable `isNearStrike` helper
+---
+
+## 2026-02-22 - US-032
+- What was implemented:
+  - Created `app/routers/export.py` with `GET /api/v1/export/positions.csv` endpoint
+  - Returns downloadable CSV file with Content-Disposition header (`attachment; filename="positions_YYYY-MM-DD.csv"`)
+  - Supports query params: `start`, `end` (date range on open_date), `status`, `ticker` (case-insensitive)
+  - CSV includes all 22 position fields plus 6 computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc) — 28 columns total
+  - Uses `PositionResponse.model_validate(orm_obj)` to compute derived fields per row
+  - Tags (list) serialized as semicolon-separated string; None values serialized as empty string
+  - Empty result set returns CSV with headers only (no data rows)
+  - Endpoint requires authentication via `get_current_user` dependency
+  - Wired router into `app/main.py`
+  - Created `tests/test_export.py` with 10 tests covering: CSV content, empty result, computed fields, status filter, ticker filter, date range filter, auth required, filename, tags serialization, multiple positions
+- Files changed:
+  - `backend/app/routers/export.py` (new)
+  - `backend/app/main.py` (modified — added export router)
+  - `backend/tests/test_export.py` (new)
+- **Learnings:**
+  - `StreamingResponse` with `iter([output.getvalue()])` is the simplest way to return CSV as a downloadable file in FastAPI
+  - `Content-Disposition: attachment; filename="..."` triggers browser file download
+  - `csv.writer` + `io.StringIO` for in-memory CSV generation avoids temp files
+  - Reusing `PositionResponse.model_validate()` in the export endpoint leverages existing computed field logic (same as dashboard by-ticker)
+  - Tags as `list[str]` need special serialization for CSV — semicolon separator avoids conflicts with CSV commas
+---
