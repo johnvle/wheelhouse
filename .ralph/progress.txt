@@ -476,3 +476,23 @@
   - `session.access_token` is the JWT to send to the backend; session is `null` when not authenticated
   - `enabled: !!token` in useQuery prevents API calls when not authenticated
 ---
+
+## 2026-02-22 - US-019
+- What was implemented:
+  - Built Login page with email/password form using shadcn/ui Card, Input, Label, Button components
+  - Form calls `signIn(email, password)` from AuthContext on submit
+  - Failed login displays error message below form fields
+  - Successful login triggers auth state change → AuthGuard allows access → redirects to `/`
+  - Already-authenticated users visiting `/login` are redirected to `/` via `<Navigate />`
+  - Added shadcn/ui Input, Label, Card components via `npx shadcn@latest add`
+- Files changed:
+  - `frontend/src/pages/Login.tsx` (rewritten — full login form with error handling)
+  - `frontend/src/components/ui/input.tsx` (new — shadcn/ui Input)
+  - `frontend/src/components/ui/label.tsx` (new — shadcn/ui Label)
+  - `frontend/src/components/ui/card.tsx` (new — shadcn/ui Card)
+- **Learnings:**
+  - shadcn/ui Card has subcomponents: CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+  - Login redirect flow: signIn → Supabase updates session → onAuthStateChange fires → user state updates → AuthGuard re-renders → allows access
+  - `<Navigate to="/" replace />` for already-authenticated users prevents login page flash
+  - `disabled={submitting}` on Button prevents double-submit; `try/catch/finally` ensures `setSubmitting(false)` always runs
+---
