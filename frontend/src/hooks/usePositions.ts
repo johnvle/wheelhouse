@@ -7,8 +7,10 @@ export function usePositions(params: PositionFilters = {}) {
   const { session } = useAuth();
   const token = session?.access_token ?? null;
 
+  const { status, ticker, type, account_id, expiration_start, expiration_end, sort, order } = params;
+
   return useQuery<Position[]>({
-    queryKey: ["positions", params],
+    queryKey: ["positions", status, ticker, type, account_id, expiration_start, expiration_end, sort, order],
     queryFn: () => getPositions(params, token),
     enabled: !!token,
   });

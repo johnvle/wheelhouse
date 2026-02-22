@@ -64,12 +64,14 @@ def _make_position(user_id: UUID, account_id: UUID, **overrides) -> Position:
 
 
 class _FakeQuery:
-    """Minimal mock that chains .filter().all()."""
+    """Mock that chains .filter().all() and records filter arguments."""
 
     def __init__(self, results):
         self._results = results
+        self.filters: list[tuple] = []
 
     def filter(self, *args):
+        self.filters.append(args)
         return self
 
     def all(self):
@@ -94,10 +96,11 @@ def auth_headers(user_id: UUID) -> dict:
 async def test_dashboard_summary_no_data(user_id: UUID, auth_headers: dict):
     """Returns zeroes when no positions exist."""
     mock_db = MagicMock()
-    # Two queries: all positions (date-scoped) and open positions
+    # Three queries: date-scoped positions, MTD positions, open positions
     all_query = _FakeQuery([])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -157,8 +160,9 @@ async def test_dashboard_summary_with_positions(user_id: UUID, auth_headers: dic
 
     mock_db = MagicMock()
     all_query = _FakeQuery(all_positions)
+    mtd_query = _FakeQuery([open_pos])  # only open_pos is in current month
     open_query = _FakeQuery([open_pos])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -206,8 +210,9 @@ async def test_dashboard_summary_premium_mtd_only_current_month(
 
     mock_db = MagicMock()
     all_query = _FakeQuery([old_pos])
+    mtd_query = _FakeQuery([])  # no positions in current month
     open_query = _FakeQuery([])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -255,8 +260,9 @@ async def test_dashboard_summary_upcoming_expirations_within_7_days(
 
     mock_db = MagicMock()
     all_query = _FakeQuery([soon_pos, far_pos])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([soon_pos, far_pos])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -299,8 +305,9 @@ async def test_dashboard_summary_with_date_range(user_id: UUID, auth_headers: di
     # The DB mock returns only in-range positions (the endpoint applies the filter via SQL)
     mock_db = MagicMock()
     all_query = _FakeQuery([in_range])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -315,6 +322,8 @@ async def test_dashboard_summary_with_date_range(user_id: UUID, auth_headers: di
         data = resp.json()
         # premium_net = 500 - 0 - 0 = 500
         assert Decimal(str(data["total_premium_collected"])) == Decimal("500")
+        # Verify MTD query filters were applied (user_id + open_date >= mtd_start)
+        assert len(mtd_query.filters) >= 1
     finally:
         app.dependency_overrides.clear()
 
@@ -343,8 +352,9 @@ async def test_dashboard_summary_closed_uses_premium_net(
 
     mock_db = MagicMock()
     all_query = _FakeQuery([closed_pos])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -386,8 +396,9 @@ async def test_dashboard_summary_open_uses_premium_total(
 
     mock_db = MagicMock()
     all_query = _FakeQuery([open_pos])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([open_pos])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:
@@ -438,8 +449,9 @@ async def test_dashboard_summary_upcoming_expirations_has_computed_fields(
 
     mock_db = MagicMock()
     all_query = _FakeQuery([pos])
+    mtd_query = _FakeQuery([])
     open_query = _FakeQuery([pos])
-    mock_db.query.side_effect = [all_query, open_query]
+    mock_db.query.side_effect = [all_query, mtd_query, open_query]
 
     app.dependency_overrides[get_db] = lambda: mock_db
     try:

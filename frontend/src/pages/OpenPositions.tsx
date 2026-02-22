@@ -1,10 +1,20 @@
+import { useMemo } from "react";
 import { usePositions } from "@/hooks/usePositions";
+import { useAccounts } from "@/hooks/useAccounts";
 import PositionsTable, {
   openPositionColumns,
 } from "@/components/PositionsTable";
 
 export default function OpenPositions() {
   const { data: positions, isLoading, error } = usePositions({ status: "OPEN" });
+  const { data: accounts } = useAccounts();
+
+  const accountNames = useMemo(() => {
+    if (!accounts) return {};
+    return Object.fromEntries(accounts.map((a) => [a.id, a.name]));
+  }, [accounts]);
+
+  const columns = useMemo(() => openPositionColumns(accountNames), [accountNames]);
 
   return (
     <div>
@@ -30,7 +40,7 @@ export default function OpenPositions() {
         {positions && positions.length > 0 && (
           <PositionsTable
             data={positions}
-            columns={openPositionColumns}
+            columns={columns}
           />
         )}
       </div>

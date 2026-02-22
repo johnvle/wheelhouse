@@ -2,6 +2,14 @@ import { useState } from "react";
 import type { Account, Broker } from "@/types/account";
 import { useAccounts, useCreateAccount, useUpdateAccount } from "@/hooks/useAccounts";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import AccountFormDialog from "@/components/AccountFormDialog";
 
 export default function Settings() {
@@ -11,26 +19,34 @@ export default function Settings() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   function handleAdd() {
     setEditingAccount(null);
+    setMutationError(null);
     setDialogOpen(true);
   }
 
   function handleEdit(account: Account) {
     setEditingAccount(account);
+    setMutationError(null);
     setDialogOpen(true);
   }
 
   function handleSubmit(data: { name: string; broker: Broker; tax_treatment?: string }) {
+    setMutationError(null);
     if (editingAccount) {
       updateMutation.mutate(
         { id: editingAccount.id, body: data },
-        { onSuccess: () => setDialogOpen(false) }
+        {
+          onSuccess: () => setDialogOpen(false),
+          onError: (err) => setMutationError(err.message),
+        }
       );
     } else {
       createMutation.mutate(data, {
         onSuccess: () => setDialogOpen(false),
+        onError: (err) => setMutationError(err.message),
       });
     }
   }
@@ -55,22 +71,22 @@ export default function Settings() {
 
         {accounts && accounts.length > 0 && (
           <div className="mt-4 rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium">Name</th>
-                  <th className="px-4 py-2 text-left font-medium">Broker</th>
-                  <th className="px-4 py-2 text-left font-medium">Tax Treatment</th>
-                  <th className="px-4 py-2 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Broker</TableHead>
+                  <TableHead>Tax Treatment</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {accounts.map((account) => (
-                  <tr key={account.id} className="border-b last:border-0">
-                    <td className="px-4 py-2">{account.name}</td>
-                    <td className="px-4 py-2 capitalize">{account.broker}</td>
-                    <td className="px-4 py-2">{account.tax_treatment ?? "—"}</td>
-                    <td className="px-4 py-2 text-right">
+                  <TableRow key={account.id}>
+                    <TableCell>{account.name}</TableCell>
+                    <TableCell className="capitalize">{account.broker}</TableCell>
+                    <TableCell>{account.tax_treatment ?? "—"}</TableCell>
+                    <TableCell className="text-right">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -78,11 +94,11 @@ export default function Settings() {
                       >
                         Edit
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -93,6 +109,7 @@ export default function Settings() {
         account={editingAccount}
         onSubmit={handleSubmit}
         submitting={createMutation.isPending || updateMutation.isPending}
+        error={mutationError}
       />
     </div>
   );

@@ -4,7 +4,7 @@ export interface Account {
   id: string;
   user_id: string;
   name: string;
-  broker: string;
+  broker: Broker;
   tax_treatment: string | null;
   created_at: string;
   updated_at: string;

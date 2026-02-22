@@ -13,7 +13,6 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.position import Position
 from app.schemas.dashboard import DashboardSummaryResponse, TickerSummary
-from app.schemas.position import PositionResponse
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -50,10 +49,17 @@ def dashboard_summary(
         Decimal("0"),
     )
 
-    # Premium MTD: positions opened in current month
+    # Premium MTD: always query from 1st of current month, independent of date range
     today = date.today()
     mtd_start = today.replace(day=1)
-    mtd_positions = [p for p in positions if p.open_date >= mtd_start]
+    mtd_positions = (
+        db.query(Position)
+        .filter(
+            Position.user_id == user_id,
+            Position.open_date >= mtd_start,
+        )
+        .all()
+    )
     premium_mtd = sum(
         (_compute_premium(p) for p in mtd_positions),
         Decimal("0"),
@@ -109,12 +115,24 @@ def dashboard_by_ticker(
         )
         trade_count = len(ticker_positions)
 
-        # Compute avg annualized ROC using PositionResponse computed field
+        # Compute avg annualized ROC directly (mirrors PositionResponse logic)
         roc_sum = Decimal("0")
         for p in ticker_positions:
-            pr = PositionResponse.model_validate(p)
-            roc_sum += pr.annualized_roc
-        avg_annualized_roc = roc_sum / trade_count
+            collateral = p.strike_price * p.contracts * p.multiplier
+            if collateral == 0:
+                continue
+            premium_total = p.premium_per_share * p.contracts * p.multiplier
+            premium_net = premium_total - p.open_fees - p.close_fees
+            roc_period = premium_net / collateral
+            days_in_trade = (
+                (p.close_date - p.open_date).days
+                if p.close_date is not None
+                else (p.expiration_date - p.open_date).days
+            )
+            if days_in_trade <= 0:
+                continue
+            roc_sum += roc_period * Decimal(365) / Decimal(days_in_trade)
+        avg_annualized_roc = roc_sum / trade_count if trade_count else Decimal("0")
 
         results.append(
             TickerSummary(

@@ -23,6 +23,7 @@ interface AccountFormDialogProps {
   account?: Account | null;
   onSubmit: (data: { name: string; broker: Broker; tax_treatment?: string }) => void;
   submitting: boolean;
+  error?: string | null;
 }
 
 export default function AccountFormDialog({
@@ -31,6 +32,7 @@ export default function AccountFormDialog({
   account,
   onSubmit,
   submitting,
+  error,
 }: AccountFormDialogProps) {
   const [name, setName] = useState("");
   const [broker, setBroker] = useState<Broker>("robinhood");
@@ -41,7 +43,7 @@ export default function AccountFormDialog({
   useEffect(() => {
     if (account) {
       setName(account.name);
-      setBroker(account.broker as Broker);
+      setBroker(account.broker);
       setTaxTreatment(account.tax_treatment ?? "");
     } else {
       setName("");
@@ -98,6 +100,9 @@ export default function AccountFormDialog({
               placeholder="e.g., Roth, Traditional, Taxable"
             />
           </div>
+          {error && (
+            <p className="text-sm text-destructive">{error}</p>
+          )}
           <Button type="submit" disabled={submitting}>
             {submitting ? "Saving..." : isEdit ? "Save Changes" : "Add Account"}
           </Button>

@@ -31,64 +31,75 @@ const pctFmt = new Intl.NumberFormat("en-US", {
 interface PositionsTableProps {
   data: Position[];
   columns: ColumnDef<Position>[];
-  onRowAction?: (action: string, position: Position) => void;
 }
 
-export const openPositionColumns: ColumnDef<Position>[] = [
-  {
-    accessorKey: "ticker",
-    header: "Ticker",
-  },
-  {
-    accessorKey: "type",
-    header: "Type",
-    cell: ({ getValue }) => {
-      const v = getValue<string>();
-      return v === "COVERED_CALL" ? "CC" : "CSP";
+export function openPositionColumns(
+  accountNames?: Record<string, string>
+): ColumnDef<Position>[] {
+  return [
+    {
+      accessorKey: "account_id",
+      header: "Account",
+      cell: ({ getValue }) => {
+        const id = getValue<string>();
+        return accountNames?.[id] ?? "—";
+      },
     },
-  },
-  {
-    accessorKey: "strike_price",
-    header: "Strike",
-    cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
-  },
-  {
-    accessorKey: "contracts",
-    header: "Contracts",
-  },
-  {
-    accessorKey: "premium_per_share",
-    header: "Prem/Share",
-    cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
-  },
-  {
-    accessorKey: "premium_total",
-    header: "Premium Total",
-    cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
-  },
-  {
-    accessorKey: "collateral",
-    header: "Collateral",
-    cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
-  },
-  {
-    accessorKey: "open_date",
-    header: "Open Date",
-  },
-  {
-    accessorKey: "expiration_date",
-    header: "Expiration",
-  },
-  {
-    accessorKey: "dte",
-    header: "DTE",
-  },
-  {
-    accessorKey: "annualized_roc",
-    header: "Ann. ROC",
-    cell: ({ getValue }) => pctFmt.format(getValue<number>()),
-  },
-];
+    {
+      accessorKey: "ticker",
+      header: "Ticker",
+    },
+    {
+      accessorKey: "type",
+      header: "Type",
+      cell: ({ getValue }) => {
+        const v = getValue<string>();
+        return v === "COVERED_CALL" ? "CC" : "CSP";
+      },
+    },
+    {
+      accessorKey: "strike_price",
+      header: "Strike",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "contracts",
+      header: "Contracts",
+    },
+    {
+      accessorKey: "premium_per_share",
+      header: "Prem/Share",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "premium_total",
+      header: "Premium Total",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "collateral",
+      header: "Collateral",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "open_date",
+      header: "Open Date",
+    },
+    {
+      accessorKey: "expiration_date",
+      header: "Expiration",
+    },
+    {
+      accessorKey: "dte",
+      header: "DTE",
+    },
+    {
+      accessorKey: "annualized_roc",
+      header: "Ann. ROC",
+      cell: ({ getValue }) => pctFmt.format(getValue<number>()),
+    },
+  ];
+}
 
 export default function PositionsTable({
   data,

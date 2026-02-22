@@ -5,6 +5,39 @@ import type { Position, PositionType, PositionStatus } from "@/types/position";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+// Mutex for token refresh — prevents concurrent refresh calls
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = supabase.auth
+    .refreshSession()
+    .then(({ data, error }) => {
+      if (error || !data.session) {
+        window.location.href = "/login";
+        return null;
+      }
+      return data.session.access_token;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
+  return refreshPromise;
+}
+
+async function parseErrorBody(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body.detail === "string") return body.detail;
+    if (Array.isArray(body.detail)) {
+      return body.detail.map((d: { msg: string }) => d.msg).join("; ");
+    }
+  } catch {
+    // JSON parsing failed — fall through
+  }
+  return `API error: ${res.status}`;
+}
+
 export async function apiFetch<T>(
   path: string,
   token: string | null,
@@ -21,24 +54,18 @@ export async function apiFetch<T>(
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (res.status === 401 && token) {
-    // Try refreshing the session
-    const { data, error } = await supabase.auth.refreshSession();
-    if (error || !data.session) {
-      // Refresh failed — redirect to login
-      window.location.href = "/login";
-      throw new Error("Session expired");
-    }
-    // Retry with new token
-    headers["Authorization"] = `Bearer ${data.session.access_token}`;
+    const newToken = await refreshAccessToken();
+    if (!newToken) throw new Error("Session expired");
+    headers["Authorization"] = `Bearer ${newToken}`;
     const retry = await fetch(`${API_BASE}${path}`, { ...options, headers });
     if (!retry.ok) {
-      throw new Error(`API error: ${retry.status}`);
+      throw new Error(await parseErrorBody(retry));
     }
     return retry.json();
   }
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    throw new Error(await parseErrorBody(res));
   }
 
   return res.json();
