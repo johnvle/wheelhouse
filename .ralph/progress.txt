@@ -1,4 +1,9 @@
 ## Codebase Patterns
+- Frontend Tailwind: Tailwind CSS v4 uses `@tailwindcss/vite` plugin + `@import "tailwindcss"` in CSS (no tailwind.config.js needed)
+- shadcn/ui: Requires `@/*` path aliases in BOTH `tsconfig.json` (root) AND `tsconfig.app.json` for CLI to detect
+- shadcn/ui init: Use `npx shadcn@latest init -d` for non-interactive defaults; adds `components.json`, `src/lib/utils.ts`, CSS variables
+- shadcn/ui add: Use `npx shadcn@latest add <component> -y` to add components non-interactively
+- Frontend path aliases: Configure in `tsconfig.json` (for shadcn CLI), `tsconfig.app.json` (for TS), `vite.config.ts` (for Vite bundling)
 - By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
 - PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
@@ -357,4 +362,33 @@
   - `defaultdict(list)` is cleaner than manual grouping for Python-side aggregation
   - By-ticker endpoint uses a single DB query (unlike summary which uses two) since it doesn't need separate open-position queries
   - `mock_db.query.return_value` (not `side_effect`) works for single-query endpoints
+---
+
+## 2026-02-22 - US-015
+- What was implemented:
+  - Installed Tailwind CSS v4 (`tailwindcss`, `@tailwindcss/vite`) and configured as a Vite plugin
+  - Set up `@/` path aliases in `tsconfig.json`, `tsconfig.app.json`, and `vite.config.ts` (all three needed)
+  - Replaced boilerplate `index.css` with Tailwind import; shadcn/ui init added CSS variables and theme config
+  - Initialized shadcn/ui (`npx shadcn@latest init -d`): created `components.json`, `src/lib/utils.ts` (cn utility), installed `clsx`, `tailwind-merge`, `class-variance-authority`, `radix-ui`, `lucide-react`, `tw-animate-css`
+  - Added Button component via `npx shadcn@latest add button -y`
+  - Updated `App.tsx` to use shadcn/ui Button with Tailwind utility classes, removed Vite boilerplate
+  - Cleared `App.css` (no longer needed with Tailwind)
+  - TypeScript typecheck and Vite production build both pass
+- Files changed:
+  - `frontend/package.json` (modified — new dependencies)
+  - `frontend/vite.config.ts` (modified — added tailwindcss plugin and path aliases)
+  - `frontend/tsconfig.json` (modified — added compilerOptions with path aliases)
+  - `frontend/tsconfig.app.json` (modified — added path aliases)
+  - `frontend/src/index.css` (rewritten — Tailwind import + shadcn/ui CSS variables)
+  - `frontend/src/App.tsx` (rewritten — uses shadcn/ui Button with Tailwind classes)
+  - `frontend/src/App.css` (cleared — replaced by Tailwind utilities)
+  - `frontend/components.json` (new — shadcn/ui configuration)
+  - `frontend/src/lib/utils.ts` (new — cn utility function)
+  - `frontend/src/components/ui/button.tsx` (new — shadcn/ui Button component)
+- **Learnings:**
+  - Tailwind CSS v4 no longer uses `tailwind.config.js`; configuration is done via CSS `@theme` blocks and the `@tailwindcss/vite` plugin
+  - shadcn/ui CLI reads `tsconfig.json` (root), not `tsconfig.app.json` — path aliases must be in the root tsconfig for the CLI to validate
+  - `npx shadcn@latest init -d` uses all defaults (new-york style, neutral base color, CSS variables enabled) — fully non-interactive
+  - shadcn/ui v4 (Tailwind v4 compatible) uses `@import "shadcn/tailwind.css"` and `@import "tw-animate-css"` instead of manual plugin configs
+  - The `--style new-york` is the default for shadcn/ui and includes smaller, more refined components
 ---
