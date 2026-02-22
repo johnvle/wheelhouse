@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
+- Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
 - Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
 - Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
 - List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
@@ -302,4 +304,31 @@
   - `mock_db.query.side_effect = [position_query, account_query]` handles the two sequential queries (Position lookup then Account validation)
   - `fake_refresh` with a counter (`refresh_call_count`) differentiates between refreshing the closed position vs the new position
   - Outcome is hardcoded to "ROLLED" in the endpoint (not sent by client), unlike the close endpoint which accepts outcome from the client
+---
+
+## 2026-02-22 - US-013
+- What was implemented:
+  - Created `app/schemas/dashboard.py` with `DashboardSummaryResponse` schema (total_premium_collected, premium_mtd, open_position_count, upcoming_expirations)
+  - Created `app/routers/dashboard.py` with `GET /api/v1/dashboard/summary` endpoint
+  - Supports optional `start`/`end` date query params to scope total_premium_collected by open_date
+  - `total_premium_collected`: premium_net for closed positions + premium_total for open
+  - `premium_mtd`: same calculation filtered to current month
+  - `open_position_count`: count of OPEN positions (not date-scoped)
+  - `upcoming_expirations`: OPEN positions expiring within 7 days, returned as full PositionResponse objects with computed fields
+  - Returns zeroes and empty list when no data exists
+  - Wired router into `app/main.py`
+  - Updated `app/schemas/__init__.py` with `DashboardSummaryResponse` export
+  - Created `tests/test_dashboard.py` with 9 tests covering: no data (zeroes), mixed open/closed, MTD scoping, upcoming expirations 7-day cutoff, date range params, closed premium_net, open premium_total, auth required, computed fields in upcoming expirations
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (new)
+  - `backend/app/routers/dashboard.py` (new)
+  - `backend/app/main.py` (modified — added dashboard router)
+  - `backend/app/schemas/__init__.py` (modified — added DashboardSummaryResponse)
+  - `backend/tests/test_dashboard.py` (new)
+- **Learnings:**
+  - Dashboard endpoint uses two separate DB queries: one for date-scoped positions (all statuses) and one for open positions
+  - Premium calculation varies by status: closed uses premium_net (total - fees), open uses premium_total (fees unknown yet)
+  - MTD filtering is done in Python from the already-fetched positions, not as a separate query
+  - `mock_db.query.side_effect = [all_query, open_query]` handles the two sequential queries in the endpoint
+  - `upcoming_expirations` returns full PositionResponse objects (with computed fields), not a simple count
 ---
