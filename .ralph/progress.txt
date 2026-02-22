@@ -1,0 +1,163 @@
+## Codebase Patterns
+- Config: Use pydantic-settings with `get_settings()` + `@lru_cache` for lazy loading
+- Database: `app/database.py` has `Base`, `SessionLocal`, `get_db()` dependency
+- Alembic: env.py imports `get_settings()` and `Base` from app modules
+- Alembic migrations: Manual revision IDs (0002, 0003, ...), use `sa.text()` for server_default
+- Migration tests: Use `importlib.util.spec_from_file_location` to load, mock `op` to verify structure
+- ForeignKeyConstraint: Use `.column_keys` not `.columns` for unbound constraints
+- Python: asdf with `.tool-versions` (python 3.10.4)
+- Backend venv: `backend/.venv/` — activate with `source .venv/bin/activate`
+- Tests: `backend/tests/` with pytest, run from backend dir
+- Frontend: Vite + React 19 + TypeScript 5.9, strict mode
+- CheckConstraint: Pass as positional arg to `op.create_table`, test via `isinstance(a, sa.CheckConstraint)`
+- PostgreSQL arrays: Use `sa.ARRAY(sa.Text())` for `text[]` columns
+- Indexes: `op.create_index` after `create_table`; test via `mock_op.create_index.call_args_list`
+- Models: SQLAlchemy 2.0 `Mapped[]` + `mapped_column()` style in `app/models/`
+- Models: `user_id` is plain Uuid (no FK in ORM) since FK targets cross-schema `auth.users.id`
+- Models: Use `TYPE_CHECKING` guard for circular relationship imports between Account/Position
+- Model tests: Use `sa_inspect(Model)` to verify columns, types, relationships without live DB
+- Test env: `conftest.py` sets dummy env vars via `os.environ.setdefault` before app imports
+- Auth: `app/auth.py` has `JWTAuthMiddleware` + `get_current_user` dependency returning `UUID`
+- Auth: JWT verified via PyJWT with HS256, audience="authenticated", secret from `SUPABASE_JWT_SECRET`
+- Auth: Public paths (`/health`, `/docs`, `/openapi.json`, `/redoc`) excluded in middleware
+- Auth tests: Register test-only route at module level in test file, use `_make_token()` helper
+- Schemas: `app/schemas/` with enums.py, account.py, position.py; all use Pydantic v2 `model_config`
+- Schemas: `PositionResponse` uses `@computed_field` + `@property` for premium_total, premium_net, collateral, roc_period, dte, annualized_roc
+- Schemas: `from_attributes=True` enables ORM model → Pydantic response via `model_validate(orm_obj)`
+- Schemas: Enums are `str, Enum` subclasses for JSON serialization and string comparison
+- Schemas: Access `model_fields` on the class, not the instance (Pydantic v2.11 deprecation)
+
+---
+
+## 2026-02-22 - US-001
+- What was implemented:
+  - Created `.env.example` documenting all required environment variables (SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, VITE_* frontend vars)
+  - Created `backend/app/config.py` with pydantic-settings `Settings` class and lazy `get_settings()` loader
+  - Created `backend/app/database.py` with SQLAlchemy engine, SessionLocal, Base, and `get_db()` dependency
+  - Initialized Alembic (`backend/alembic/`) and configured `env.py` to use app config and Base metadata
+  - Added `.tool-versions` for Python 3.10.4 via asdf
+  - Created `backend/requirements-dev.txt` with test dependencies
+  - Created initial tests (`tests/test_config.py`) for settings loading and health endpoint
+- Files changed:
+  - `.env.example` (new)
+  - `.tool-versions` (new)
+  - `backend/app/config.py` (new)
+  - `backend/app/database.py` (new)
+  - `backend/alembic/` (new — initialized)
+  - `backend/alembic.ini` (new — generated)
+  - `backend/alembic/env.py` (modified — connected to app config)
+  - `backend/requirements-dev.txt` (new)
+  - `backend/tests/__init__.py` (new)
+  - `backend/tests/test_config.py` (new)
+- **Learnings:**
+  - pydantic-settings eagerly validates at import time; use `@lru_cache` + getter function to avoid import-time failures in tests
+  - Alembic init generates a default env.py that needs to be wired to the app's Base.metadata and config
+  - The project uses asdf for version management; must set `.tool-versions` before Python commands work
+---
+
+## 2026-02-22 - US-002
+- What was implemented:
+  - Created Alembic migration `0002_create_accounts_table.py` with all required columns (id, user_id, name, broker, tax_treatment, created_at, updated_at)
+  - id is uuid PK with `gen_random_uuid()` server default
+  - user_id has FK constraint to `auth.users.id` (Supabase auth)
+  - created_at and updated_at use `now()` server defaults with timezone=True
+  - Downgrade drops the table
+  - Created `tests/test_migrations.py` with 8 tests verifying migration structure via mocked `op`
+- Files changed:
+  - `backend/alembic/versions/0002_create_accounts_table.py` (new)
+  - `backend/tests/test_migrations.py` (new)
+- **Learnings:**
+  - `ForeignKeyConstraint.columns` is empty until bound to a table; use `.column_keys` for assertions
+  - Can't `importlib.import_module("alembic.versions.xxx")` — alembic.versions is part of alembic's package namespace; use `spec_from_file_location` instead
+  - Mocking `op` is a clean way to test migration structure without needing a live database
+---
+
+## 2026-02-22 - US-003
+- What was implemented:
+  - Created Alembic migration `0003_create_positions_table.py` with all 22 columns from the spec
+  - Columns: id (uuid PK), user_id, account_id, ticker, type, status (default OPEN), open_date, expiration_date, close_date, strike_price (numeric), contracts (int), multiplier (int default 100), premium_per_share (numeric), open_fees (numeric default 0), close_fees (numeric default 0), close_price_per_share, outcome, roll_group_id, notes, tags (text[]), created_at, updated_at
+  - FK constraints to `auth.users.id` and `accounts.id`
+  - CHECK constraints on type (COVERED_CALL, CASH_SECURED_PUT), status (OPEN, CLOSED), outcome (EXPIRED, ASSIGNED, CLOSED_EARLY, ROLLED)
+  - Three composite indexes: (user_id, status), (user_id, ticker), (user_id, expiration_date)
+  - Downgrade drops indexes then table
+  - Added 10 tests to `tests/test_migrations.py` covering structure, columns, types, nullability, FKs, CHECKs, indexes, and downgrade
+- Files changed:
+  - `backend/alembic/versions/0003_create_positions_table.py` (new)
+  - `backend/tests/test_migrations.py` (modified — added TestPositionsMigration)
+- **Learnings:**
+  - `sa.CheckConstraint` objects can be passed as positional args to `op.create_table` alongside columns and FK constraints
+  - `sa.ARRAY(sa.Text())` is the correct SQLAlchemy type for PostgreSQL `text[]` columns
+  - Indexes created via `op.create_index` are separate calls after `create_table`; test them via `mock_op.create_index.call_args_list`
+---
+
+## 2026-02-22 - US-004
+- What was implemented:
+  - Created `app/models/account.py` — Account ORM model with all 7 columns mapped via `mapped_column()` (SQLAlchemy 2.0)
+  - Created `app/models/position.py` — Position ORM model with all 22 columns including `tags` as `ARRAY(Text)`
+  - Defined relationships: `Account.positions` (one-to-many) and `Position.account` (many-to-one) with `back_populates`
+  - Updated `app/models/__init__.py` to export both models
+  - Created `tests/conftest.py` to set dummy env vars for test imports
+  - Created `tests/test_models.py` with 16 tests covering columns, types, nullability, PKs, FKs, relationships, and Mapped[] style
+- Files changed:
+  - `backend/app/models/account.py` (new)
+  - `backend/app/models/position.py` (new)
+  - `backend/app/models/__init__.py` (modified)
+  - `backend/tests/conftest.py` (new)
+  - `backend/tests/test_models.py` (new)
+- **Learnings:**
+  - `user_id` FK to `auth.users.id` (Supabase cross-schema) is omitted from ORM model to avoid metadata resolution issues; migration handles the FK
+  - `sa_inspect(Model)` provides clean access to column_attrs, relationships, and primary_key for structural tests
+  - `TYPE_CHECKING` guard is needed for circular imports between Account/Position relationship types
+  - Column named `type` needs explicit name arg `mapped_column("type", Text, ...)` to avoid ambiguity
+  - `conftest.py` with `os.environ.setdefault` is the cleanest way to handle env vars for tests that import app modules
+---
+
+## 2026-02-22 - US-005
+- What was implemented:
+  - Created `app/auth.py` with `JWTAuthMiddleware` (Starlette BaseHTTPMiddleware) and `get_current_user` FastAPI dependency
+  - Middleware verifies Supabase JWTs (HS256 + shared secret) on every request except public paths (/health, /docs, /openapi.json, /redoc)
+  - Extracts `sub` claim as `user_id`, stores in `request.state.user_id`
+  - `get_current_user` reads from `request.state` and returns `UUID`
+  - Added `SUPABASE_JWT_SECRET` to Settings config, `.env.example`, and test conftest
+  - Added `PyJWT>=2.8` to requirements.txt
+  - Wired middleware into `app/main.py`
+  - Created `tests/test_auth.py` with 10 tests covering: health bypass, missing header, invalid format, invalid token, expired token, wrong secret, wrong audience, missing sub claim, valid token returns user_id, UUID type check
+- Files changed:
+  - `backend/app/auth.py` (new)
+  - `backend/app/main.py` (modified — added JWTAuthMiddleware)
+  - `backend/app/config.py` (modified — added supabase_jwt_secret)
+  - `backend/requirements.txt` (modified — added PyJWT)
+  - `.env.example` (modified — added SUPABASE_JWT_SECRET)
+  - `backend/tests/conftest.py` (modified — added SUPABASE_JWT_SECRET env var)
+  - `backend/tests/test_auth.py` (new)
+- **Learnings:**
+  - Starlette `BaseHTTPMiddleware` with `dispatch()` is the simplest way to add request-level auth in FastAPI
+  - PyJWT `jwt.decode()` with `audience` param enforces the `aud` claim automatically
+  - `request.state` is the standard way to pass data from middleware to dependencies
+  - Register test-only routes at module level (not inside test functions) to avoid issues with FastAPI route registration
+  - `HTTPBearer(auto_error=False)` in the dependency prevents double-401 (middleware already handles it)
+---
+
+## 2026-02-22 - US-006
+- What was implemented:
+  - Created `app/schemas/enums.py` with str Enum classes: PositionType, PositionStatus, PositionOutcome, Broker
+  - Created `app/schemas/account.py` with AccountCreate, AccountUpdate, AccountResponse (Pydantic v2)
+  - Created `app/schemas/position.py` with PositionCreate, PositionUpdate, PositionResponse (Pydantic v2)
+  - PositionResponse includes 6 computed fields: premium_total, premium_net, collateral, roc_period, dte, annualized_roc
+  - All schemas use `model_config = ConfigDict(...)` (Pydantic v2 style)
+  - Response schemas use `from_attributes=True` for ORM compatibility
+  - Updated `app/schemas/__init__.py` to re-export all schemas and enums
+  - Created `tests/test_schemas.py` with 43 tests covering enums, create/update/response for both accounts and positions, computed field calculations, validation errors, and Pydantic v2 config
+- Files changed:
+  - `backend/app/schemas/enums.py` (new)
+  - `backend/app/schemas/account.py` (new)
+  - `backend/app/schemas/position.py` (new)
+  - `backend/app/schemas/__init__.py` (modified — added re-exports)
+  - `backend/tests/test_schemas.py` (new)
+- **Learnings:**
+  - Pydantic v2 `@computed_field` requires `@property` decorator underneath and `# type: ignore[prop-decorator]` for mypy
+  - `str, Enum` base classes make enums JSON-serializable and comparable to plain strings
+  - `from_attributes=True` in model_config enables `ModelClass.model_validate(orm_object)` for ORM → Pydantic conversion
+  - `model_fields` should be accessed on the class not instance (deprecated in Pydantic v2.11)
+  - Computed fields for annualized_roc need zero-guard on both collateral and days_in_trade
+---
