@@ -460,3 +460,348 @@ async def test_dashboard_summary_upcoming_expirations_has_computed_fields(
         assert "annualized_roc" in exp_pos
     finally:
         app.dependency_overrides.clear()
+
+
+# --- GET /api/v1/dashboard/by-ticker ---
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_no_data(user_id: UUID, auth_headers: dict):
+    """Returns empty list when no positions exist."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert resp.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_groups_by_ticker(user_id: UUID, auth_headers: dict):
+    """Returns per-ticker stats grouped correctly."""
+    account_id = uuid4()
+
+    aapl_pos = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="CLOSED",
+        open_date=date(2026, 1, 10),
+        expiration_date=date(2026, 2, 10),
+        close_date=date(2026, 2, 10),
+        premium_per_share=Decimal("5.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    tsla_pos1 = _make_position(
+        user_id,
+        account_id,
+        ticker="TSLA",
+        status="CLOSED",
+        open_date=date(2026, 1, 5),
+        expiration_date=date(2026, 2, 5),
+        close_date=date(2026, 2, 5),
+        premium_per_share=Decimal("10.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    tsla_pos2 = _make_position(
+        user_id,
+        account_id,
+        ticker="TSLA",
+        status="OPEN",
+        open_date=date(2026, 1, 15),
+        expiration_date=date(2026, 3, 15),
+        premium_per_share=Decimal("8.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("1.00"),
+        close_fees=Decimal("0"),
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([aapl_pos, tsla_pos1, tsla_pos2])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+
+        # Find tickers in response
+        tickers = {d["ticker"] for d in data}
+        assert tickers == {"AAPL", "TSLA"}
+
+        tsla = next(d for d in data if d["ticker"] == "TSLA")
+        assert tsla["trade_count"] == 2
+        # TSLA total: closed premium_net = 1000 + open premium_total = 800 = 1800
+        assert Decimal(str(tsla["total_premium"])) == Decimal("1800")
+
+        aapl = next(d for d in data if d["ticker"] == "AAPL")
+        assert aapl["trade_count"] == 1
+        # AAPL total: closed premium_net = 500
+        assert Decimal(str(aapl["total_premium"])) == Decimal("500")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_sorted_by_total_premium_desc(
+    user_id: UUID, auth_headers: dict
+):
+    """Results are sorted by total_premium descending."""
+    account_id = uuid4()
+
+    # Low premium ticker
+    low_pos = _make_position(
+        user_id,
+        account_id,
+        ticker="LOW",
+        status="CLOSED",
+        open_date=date(2026, 1, 10),
+        expiration_date=date(2026, 2, 10),
+        close_date=date(2026, 2, 10),
+        premium_per_share=Decimal("1.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    # High premium ticker
+    high_pos = _make_position(
+        user_id,
+        account_id,
+        ticker="HIGH",
+        status="CLOSED",
+        open_date=date(2026, 1, 5),
+        expiration_date=date(2026, 2, 5),
+        close_date=date(2026, 2, 5),
+        premium_per_share=Decimal("20.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    mock_db = MagicMock()
+    # low_pos first in DB result to verify sorting
+    mock_db.query.return_value = _FakeQuery([low_pos, high_pos])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        # HIGH should be first (2000 > 100)
+        assert data[0]["ticker"] == "HIGH"
+        assert data[1]["ticker"] == "LOW"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_with_date_range(user_id: UUID, auth_headers: dict):
+    """start/end query params scope the by-ticker results."""
+    account_id = uuid4()
+
+    # In range
+    in_range = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="CLOSED",
+        open_date=date(2026, 1, 15),
+        expiration_date=date(2026, 2, 15),
+        close_date=date(2026, 2, 15),
+        premium_per_share=Decimal("5.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    # Mock returns only in-range (endpoint applies SQL filters)
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([in_range])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker?start=2026-01-01&end=2026-01-31",
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["ticker"] == "AAPL"
+        assert Decimal(str(data[0]["total_premium"])) == Decimal("500")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_avg_annualized_roc(user_id: UUID, auth_headers: dict):
+    """avg_annualized_roc is the average of annualized_roc across positions for a ticker."""
+    account_id = uuid4()
+
+    # Two closed positions with known annualized_roc
+    pos1 = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="CLOSED",
+        open_date=date(2026, 1, 1),
+        expiration_date=date(2026, 2, 1),
+        close_date=date(2026, 2, 1),
+        strike_price=Decimal("100.00"),
+        premium_per_share=Decimal("5.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    pos2 = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="CLOSED",
+        open_date=date(2026, 1, 1),
+        expiration_date=date(2026, 2, 1),
+        close_date=date(2026, 2, 1),
+        strike_price=Decimal("200.00"),
+        premium_per_share=Decimal("5.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("0"),
+        close_fees=Decimal("0"),
+        outcome="EXPIRED",
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([pos1, pos2])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        aapl = data[0]
+        assert aapl["ticker"] == "AAPL"
+        # Verify avg_annualized_roc is a number > 0
+        assert Decimal(str(aapl["avg_annualized_roc"])) > 0
+        assert aapl["trade_count"] == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_premium_calculation(user_id: UUID, auth_headers: dict):
+    """Closed positions use premium_net, open positions use premium_total."""
+    account_id = uuid4()
+    today = date.today()
+
+    # Open position: premium_total = 4.00 * 1 * 100 = 400
+    open_pos = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="OPEN",
+        open_date=date(2026, 1, 15),
+        expiration_date=today + timedelta(days=30),
+        premium_per_share=Decimal("4.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("1.00"),
+        close_fees=Decimal("0"),
+    )
+
+    # Closed position: premium_net = 500 - 1.00 - 0.50 = 498.50
+    closed_pos = _make_position(
+        user_id,
+        account_id,
+        ticker="AAPL",
+        status="CLOSED",
+        open_date=date(2026, 1, 10),
+        expiration_date=date(2026, 2, 10),
+        close_date=date(2026, 2, 10),
+        premium_per_share=Decimal("5.00"),
+        contracts=1,
+        multiplier=100,
+        open_fees=Decimal("1.00"),
+        close_fees=Decimal("0.50"),
+        outcome="EXPIRED",
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([open_pos, closed_pos])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/dashboard/by-ticker", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        aapl = data[0]
+        # total = open premium_total (400) + closed premium_net (498.50) = 898.50
+        assert Decimal(str(aapl["total_premium"])) == Decimal("898.50")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_by_ticker_requires_auth():
+    """GET /api/v1/dashboard/by-ticker without auth returns 401."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/dashboard/by-ticker")
+    assert resp.status_code == 401

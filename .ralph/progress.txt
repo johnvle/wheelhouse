@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
+- PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
 - Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
 - Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
@@ -331,4 +333,28 @@
   - MTD filtering is done in Python from the already-fetched positions, not as a separate query
   - `mock_db.query.side_effect = [all_query, open_query]` handles the two sequential queries in the endpoint
   - `upcoming_expirations` returns full PositionResponse objects (with computed fields), not a simple count
+---
+
+## 2026-02-22 - US-014
+- What was implemented:
+  - Added `TickerSummary` Pydantic schema to `app/schemas/dashboard.py` with fields: ticker, total_premium, trade_count, avg_annualized_roc
+  - Added `GET /api/v1/dashboard/by-ticker` endpoint to `app/routers/dashboard.py`
+  - Supports optional `start`/`end` date query params to scope by open_date
+  - Groups positions by ticker using `defaultdict(list)`
+  - Computes total_premium using same `_compute_premium()` helper (closed → premium_net, open → premium_total)
+  - Computes avg_annualized_roc by validating each position through `PositionResponse.model_validate()` to leverage computed fields
+  - Results sorted by total_premium descending
+  - Returns empty list when no positions exist
+  - Updated `app/schemas/__init__.py` to export `TickerSummary`
+  - Added 7 tests covering: empty data, grouping, sorting, date range, avg_annualized_roc, premium calculation (open vs closed), auth required
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (modified — added TickerSummary)
+  - `backend/app/routers/dashboard.py` (modified — added by-ticker endpoint, new imports)
+  - `backend/app/schemas/__init__.py` (modified — added TickerSummary export)
+  - `backend/tests/test_dashboard.py` (modified — added 7 by-ticker tests)
+- **Learnings:**
+  - `PositionResponse.model_validate(orm_mock)` reuses computed fields (annualized_roc) without reimplementing the calculation
+  - `defaultdict(list)` is cleaner than manual grouping for Python-side aggregation
+  - By-ticker endpoint uses a single DB query (unlike summary which uses two) since it doesn't need separate open-position queries
+  - `mock_db.query.return_value` (not `side_effect`) works for single-query endpoints
 ---

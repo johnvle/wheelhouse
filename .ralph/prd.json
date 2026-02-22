@@ -212,7 +212,7 @@
     "phase": 3,
     "priority": 14,
     "tags": ["backend", "api", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-015",

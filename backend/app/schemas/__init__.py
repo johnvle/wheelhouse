@@ -1,5 +1,5 @@
 from app.schemas.account import AccountCreate, AccountResponse, AccountUpdate
-from app.schemas.dashboard import DashboardSummaryResponse
+from app.schemas.dashboard import DashboardSummaryResponse, TickerSummary
 from app.schemas.enums import Broker, PositionOutcome, PositionStatus, PositionType
 from app.schemas.position import (
     PositionClose,
@@ -16,6 +16,7 @@ __all__ = [
     "AccountUpdate",
     "AccountResponse",
     "DashboardSummaryResponse",
+    "TickerSummary",
     "PositionClose",
     "PositionCreate",
     "PositionRoll",

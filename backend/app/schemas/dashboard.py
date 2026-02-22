@@ -12,3 +12,10 @@ class DashboardSummaryResponse(BaseModel):
     premium_mtd: Decimal
     open_position_count: int
     upcoming_expirations: list[PositionResponse]
+
+
+class TickerSummary(BaseModel):
+    ticker: str
+    total_premium: Decimal
+    trade_count: int
+    avg_annualized_roc: Decimal
