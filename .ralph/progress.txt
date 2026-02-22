@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
+- _FakeQuery: Add `.order_by()` method for mock chaining on list endpoints
 - Config: Use pydantic-settings with `get_settings()` + `@lru_cache` for lazy loading
 - Database: `app/database.py` has `Base`, `SessionLocal`, `get_db()` dependency
 - Alembic: env.py imports `get_settings()` and `Base` from app modules
@@ -207,4 +209,25 @@
   - `body.type.value` extracts the enum string value for storage in the ORM model (same pattern as Broker enum)
   - `body.ticker.upper()` handles ticker uppercasing at the router level, not schema level
   - Mock `db.refresh()` side_effect must set all fields the ORM object would have after DB round-trip, including server defaults (status, close_fees, etc.)
+---
+
+## 2026-02-22 - US-009
+- What was implemented:
+  - Added `GET /api/v1/positions` endpoint to `app/routers/positions.py` with filtering and sorting
+  - Supports query params: status, ticker, type, account_id, expiration_start, expiration_end, sort, order (asc/desc)
+  - Default sort is `open_date` descending
+  - Ticker filter is case-insensitive (uppercased before comparison)
+  - Invalid sort columns fall back to `open_date`
+  - Returns empty list (not error) when no positions match
+  - Each position includes computed fields via `PositionResponse`
+  - Added 11 tests covering: list (2), filters (status, ticker, type, account_id, expiration range), sorting (2), computed fields, auth
+  - Updated `_FakeQuery` to support `.order_by()` chaining
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added GET endpoint, imports, SORTABLE_COLUMNS)
+  - `backend/tests/test_positions.py` (modified — added 11 GET tests, updated _FakeQuery)
+- **Learnings:**
+  - `Optional` query params with `Query(None)` cleanly handle optional filters — only add `.filter()` when param is not None
+  - `getattr(Position, sort_col_name)` dynamically resolves ORM columns for sorting; validate against a whitelist to prevent injection
+  - Enum query params (PositionStatus, PositionType) are auto-validated by FastAPI; use `.value` to compare against DB strings
+  - `_FakeQuery.order_by()` just returns `self` since mock doesn't need real sorting — tests verify the endpoint accepts sort params without error
 ---

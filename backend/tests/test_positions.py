@@ -83,12 +83,15 @@ def _make_position(user_id: UUID, account_id: UUID, **overrides) -> Position:
 
 
 class _FakeQuery:
-    """Minimal mock that chains .filter().all() / .filter().first()."""
+    """Minimal mock that chains .filter().all() / .filter().first() / .order_by()."""
 
     def __init__(self, results):
         self._results = results
 
     def filter(self, *args):
+        return self
+
+    def order_by(self, *args):
         return self
 
     def all(self):
@@ -469,3 +472,261 @@ async def test_create_position_cash_secured_put(user_id: UUID, auth_headers: dic
         assert created_obj.type == "CASH_SECURED_PUT"
     finally:
         app.dependency_overrides.clear()
+
+
+# --- GET /api/v1/positions ---
+
+
+@pytest.mark.asyncio
+async def test_list_positions_returns_user_positions(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions returns only the authenticated user's positions."""
+    account_id = uuid4()
+    positions = [
+        _make_position(user_id, account_id, ticker="AAPL"),
+        _make_position(user_id, account_id, ticker="TSLA"),
+    ]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/api/v1/positions", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        tickers = {p["ticker"] for p in data}
+        assert tickers == {"AAPL", "TSLA"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_empty(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions returns empty list when no positions match."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/api/v1/positions", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_status_filter(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?status=OPEN filters by status."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id, status="OPEN")]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/positions?status=OPEN", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_ticker_filter(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?ticker=aapl filters by ticker (case-insensitive)."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id, ticker="AAPL")]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/positions?ticker=aapl", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_type_filter(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?type=COVERED_CALL filters by type."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id, type="COVERED_CALL")]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/positions?type=COVERED_CALL", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_account_filter(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?account_id=... filters by account."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id)]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/positions?account_id={account_id}", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_expiration_range(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?expiration_start=...&expiration_end=... filters by expiration range."""
+    account_id = uuid4()
+    positions = [
+        _make_position(user_id, account_id, expiration_date=date(2026, 3, 15))
+    ]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/positions?expiration_start=2026-03-01&expiration_end=2026-03-31",
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_with_sort_and_order(user_id: UUID, auth_headers: dict):
+    """GET /api/v1/positions?sort=ticker&order=asc applies sorting."""
+    account_id = uuid4()
+    positions = [
+        _make_position(user_id, account_id, ticker="AAPL"),
+        _make_position(user_id, account_id, ticker="TSLA"),
+    ]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                "/api/v1/positions?sort=ticker&order=asc", headers=auth_headers
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_default_sort_open_date_desc(
+    user_id: UUID, auth_headers: dict
+):
+    """GET /api/v1/positions default sort is open_date descending."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id)]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/api/v1/positions", headers=auth_headers)
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_includes_computed_fields(
+    user_id: UUID, auth_headers: dict
+):
+    """Each position in the response includes computed fields."""
+    account_id = uuid4()
+    positions = [_make_position(user_id, account_id)]
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery(positions)
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/api/v1/positions", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        pos = data[0]
+        assert "premium_total" in pos
+        assert "premium_net" in pos
+        assert "collateral" in pos
+        assert "roc_period" in pos
+        assert "dte" in pos
+        assert "annualized_roc" in pos
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_positions_requires_auth():
+    """GET /api/v1/positions without auth returns 401."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.get("/api/v1/positions")
+    assert resp.status_code == 401

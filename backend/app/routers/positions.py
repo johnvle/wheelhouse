@@ -1,17 +1,72 @@
 """CRUD endpoints for option positions."""
 
+from datetime import date
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.account import Account
 from app.models.position import Position
+from app.schemas.enums import PositionStatus, PositionType
 from app.schemas.position import PositionCreate, PositionResponse
 
 router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
+
+SORTABLE_COLUMNS = {
+    "open_date",
+    "expiration_date",
+    "ticker",
+    "strike_price",
+    "contracts",
+    "premium_per_share",
+    "status",
+    "type",
+    "created_at",
+    "updated_at",
+}
+
+
+@router.get("", response_model=list[PositionResponse])
+def list_positions(
+    user_id: UUID = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    status: Optional[PositionStatus] = Query(None),
+    ticker: Optional[str] = Query(None),
+    type: Optional[PositionType] = Query(None),
+    account_id: Optional[UUID] = Query(None),
+    expiration_start: Optional[date] = Query(None),
+    expiration_end: Optional[date] = Query(None),
+    sort: str = Query("open_date"),
+    order: str = Query("desc"),
+):
+    query = db.query(Position).filter(Position.user_id == user_id)
+
+    if status is not None:
+        query = query.filter(Position.status == status.value)
+    if ticker is not None:
+        query = query.filter(Position.ticker == ticker.upper())
+    if type is not None:
+        query = query.filter(Position.type == type.value)
+    if account_id is not None:
+        query = query.filter(Position.account_id == account_id)
+    if expiration_start is not None:
+        query = query.filter(Position.expiration_date >= expiration_start)
+    if expiration_end is not None:
+        query = query.filter(Position.expiration_date <= expiration_end)
+
+    # Sorting
+    sort_col_name = sort if sort in SORTABLE_COLUMNS else "open_date"
+    sort_col = getattr(Position, sort_col_name)
+    if order.lower() == "asc":
+        query = query.order_by(sort_col.asc())
+    else:
+        query = query.order_by(sort_col.desc())
+
+    return query.all()
 
 
 @router.post("", response_model=PositionResponse, status_code=201)

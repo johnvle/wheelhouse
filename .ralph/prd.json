@@ -133,7 +133,7 @@
     "phase": 1,
     "priority": 9,
     "tags": ["backend", "api"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-010",
