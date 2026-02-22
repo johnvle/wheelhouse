@@ -241,7 +241,7 @@ export default function Dashboard() {
             No closed positions to summarize yet.
           </div>
         ) : tickerData ? (
-          <div className="mt-4 rounded-md border">
+          <div className="mt-4 overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>

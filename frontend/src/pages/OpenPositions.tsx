@@ -16,11 +16,34 @@ import ClosePositionDialog from "@/components/ClosePositionDialog";
 import RollPositionDialog from "@/components/RollPositionDialog";
 import AlertBanner from "@/components/AlertBanner";
 import { Button } from "@/components/ui/button";
-import type { PositionCreateBody, PositionCloseBody, PositionRollBody } from "@/lib/api";
-import type { Position } from "@/types/position";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { PositionCreateBody, PositionCloseBody, PositionRollBody, PositionFilters } from "@/lib/api";
+import type { Position, PositionType } from "@/types/position";
 
 export default function OpenPositions() {
-  const { data: positions, isLoading, error } = usePositions({ status: "OPEN" });
+  const [tickerSearch, setTickerSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<PositionType | "ALL">("ALL");
+  const [accountFilter, setAccountFilter] = useState<string>("ALL");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
+
+  const filters: PositionFilters = {
+    status: "OPEN",
+    ...(tickerSearch ? { ticker: tickerSearch.toUpperCase() } : {}),
+    ...(typeFilter !== "ALL" ? { type: typeFilter } : {}),
+    ...(accountFilter !== "ALL" ? { account_id: accountFilter } : {}),
+    ...(dateStart ? { expiration_start: dateStart } : {}),
+    ...(dateEnd ? { expiration_end: dateEnd } : {}),
+  };
+
+  const { data: positions, isLoading, error } = usePositions(filters);
   const { data: accounts } = useAccounts();
   const { settings } = useSettings();
   const createPosition = useCreatePosition();
@@ -127,11 +150,73 @@ export default function OpenPositions() {
         </div>
       </div>
 
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <div className="w-40">
+          <label className="text-sm font-medium mb-1 block">Ticker</label>
+          <Input
+            placeholder="Search ticker..."
+            value={tickerSearch}
+            onChange={(e) => setTickerSearch(e.target.value.toUpperCase())}
+          />
+        </div>
+        <div className="w-40">
+          <label className="text-sm font-medium mb-1 block">Type</label>
+          <Select
+            value={typeFilter}
+            onValueChange={(v) => setTypeFilter(v as PositionType | "ALL")}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Types</SelectItem>
+              <SelectItem value="COVERED_CALL">Covered Call</SelectItem>
+              <SelectItem value="CASH_SECURED_PUT">Cash Secured Put</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-40">
+          <label className="text-sm font-medium mb-1 block">Account</label>
+          <Select
+            value={accountFilter}
+            onValueChange={setAccountFilter}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Accounts</SelectItem>
+              {(accounts ?? []).map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-40">
+          <label className="text-sm font-medium mb-1 block">Exp. From</label>
+          <Input
+            type="date"
+            value={dateStart}
+            onChange={(e) => setDateStart(e.target.value)}
+          />
+        </div>
+        <div className="w-40">
+          <label className="text-sm font-medium mb-1 block">Exp. To</label>
+          <Input
+            type="date"
+            value={dateEnd}
+            onChange={(e) => setDateEnd(e.target.value)}
+          />
+        </div>
+      </div>
+
       <div className="mt-4">
         <AlertBanner alerts={alerts} onDismiss={dismiss} onDismissAll={dismissAll} />
       </div>
 
-      <div className="mt-6">
+      <div className="mt-4">
         {isLoading && (
           <p className="text-muted-foreground">Loading positions...</p>
         )}
@@ -149,6 +234,7 @@ export default function OpenPositions() {
           <PositionsTable
             data={positions}
             columns={columns}
+            storageKey="wheelhouse_open_col_vis"
           />
         )}
       </div>

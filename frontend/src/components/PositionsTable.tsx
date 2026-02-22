@@ -5,11 +5,18 @@ import {
   useReactTable,
   type ColumnDef,
   type SortingState,
+  type VisibilityState,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Position } from "@/types/position";
 import type { TickerPrice } from "@/types/price";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -33,6 +40,7 @@ const pctFmt = new Intl.NumberFormat("en-US", {
 interface PositionsTableProps {
   data: Position[];
   columns: ColumnDef<Position>[];
+  storageKey?: string;
 }
 
 interface OpenPositionColumnOptions {
@@ -212,6 +220,7 @@ export function openPositionColumns(
       id: "actions",
       header: "",
       enableSorting: false,
+      enableHiding: false,
       cell: ({ row }) => (
         <div className="flex gap-1">
           {closeFn && (
@@ -325,69 +334,123 @@ export function closedPositionColumns(
   ];
 }
 
+function loadColumnVisibility(key: string): VisibilityState {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function saveColumnVisibility(key: string, state: VisibilityState) {
+  localStorage.setItem(key, JSON.stringify(state));
+}
+
 export default function PositionsTable({
   data,
   columns,
+  storageKey,
 }: PositionsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    () => (storageKey ? loadColumnVisibility(storageKey) : {})
+  );
+
+  useEffect(() => {
+    if (storageKey) {
+      saveColumnVisibility(storageKey, columnVisibility);
+    }
+  }, [storageKey, columnVisibility]);
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: { sorting, columnVisibility },
     onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-background">
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  className="cursor-pointer select-none whitespace-nowrap"
-                  onClick={header.column.getToggleSortingHandler()}
-                >
-                  {flexRender(
-                    header.column.columnDef.header,
-                    header.getContext()
-                  )}
-                  {{
-                    asc: " \u2191",
-                    desc: " \u2193",
-                  }[header.column.getIsSorted() as string] ?? ""}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={columns.length}
-                className="h-24 text-center text-muted-foreground"
-              >
-                No positions found.
-              </TableCell>
-            </TableRow>
-          ) : (
-            table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="whitespace-nowrap">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+    <div>
+      {storageKey && (
+        <div className="flex justify-end mb-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {table
+                .getAllColumns()
+                .filter((col) => col.getCanHide())
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(v) => col.toggleVisibility(!!v)}
+                  >
+                    {typeof col.columnDef.header === "string"
+                      ? col.columnDef.header
+                      : col.id}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-background">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className="cursor-pointer select-none whitespace-nowrap"
+                    onClick={header.column.getToggleSortingHandler()}
+                  >
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+                    {{
+                      asc: " \u2191",
+                      desc: " \u2193",
+                    }[header.column.getIsSorted() as string] ?? ""}
+                  </TableHead>
                 ))}
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center text-muted-foreground"
+                >
+                  No positions found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id} className="whitespace-nowrap">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

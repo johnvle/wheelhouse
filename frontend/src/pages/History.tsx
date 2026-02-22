@@ -182,7 +182,7 @@ export default function History() {
           </div>
         )}
         {filteredPositions.length > 0 && (
-          <PositionsTable data={filteredPositions} columns={columns} />
+          <PositionsTable data={filteredPositions} columns={columns} storageKey="wheelhouse_history_col_vis" />
         )}
       </div>
     </div>

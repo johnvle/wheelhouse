@@ -61,6 +61,10 @@
 - Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
 - PATCH pattern: `model_dump(exclude_unset=True)` + `setattr` loop; handle `.value`/`.upper()` in the loop
 - Mock query sequencing: `mock_db.query.side_effect = [query1, query2]` for multiple distinct queries in one endpoint
+- Settings: `SettingsContext` with `useSettings()` hook; `AppSettings` type; localStorage persistence under `wheelhouse_settings` key
+- Settings wiring: Pass settings as params to hooks/column functions (not import context inside); keeps components testable
+- Column visibility: TanStack Table `VisibilityState` + `onColumnVisibilityChange`; persist per-table in localStorage via `storageKey` prop
+- Filter bar: Reuse History.tsx pattern (Input + Select components, `PositionFilters` type) for consistent filter UI across pages
 
 ---
 
@@ -821,4 +825,61 @@
   - `URL.revokeObjectURL(url)` after download prevents memory leaks from blob URLs
   - Export filters differ from `PositionFilters` — backend export uses `start`/`end` (not `expiration_start`/`expiration_end`) and doesn't support `account_id`
   - Simple `useState` hook is sufficient for export loading state — no need for TanStack Query `useMutation` since there's no cache invalidation or data return
+---
+
+## 2026-02-22 - US-034
+- What was implemented:
+  - Created `SettingsContext` (`src/contexts/SettingsContext.tsx`) with `SettingsProvider`, `useSettings` hook, and `AppSettings` type
+  - Settings persisted in localStorage under key `wheelhouse_settings`; loaded on init with fallback to defaults
+  - `updateSettings(partial)` merges partial updates into current settings and saves immediately
+  - Added alert threshold form section to Settings page above the existing account management section
+  - Three configurable fields: expiration warning days (number input, min 1), price near strike % (integer input converted to/from decimal), stale price minutes (number input, min 1)
+  - Wired `SettingsProvider` into `main.tsx` wrapping the entire app
+  - Updated `useAlerts` to accept optional `AppSettings` parameter, replacing hardcoded constants
+  - Updated `PositionsTable.tsx` `isPriceStale` and `isNearStrike` helpers to accept threshold parameters
+  - Added `nearStrikeThreshold` and `stalePriceMinutes` to `OpenPositionColumnOptions` interface
+  - Updated `OpenPositions.tsx` to use `useSettings()` and pass settings to both `useAlerts` and `openPositionColumns`
+  - Changes take effect immediately without page reload (React context triggers re-render)
+- Files changed:
+  - `frontend/src/contexts/SettingsContext.tsx` (new — settings context with localStorage persistence)
+  - `frontend/src/main.tsx` (modified — added SettingsProvider wrapper)
+  - `frontend/src/pages/Settings.tsx` (modified — added alert threshold form section)
+  - `frontend/src/hooks/useAlerts.ts` (modified — parameterized thresholds)
+  - `frontend/src/components/PositionsTable.tsx` (modified — parameterized isPriceStale/isNearStrike)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useSettings, passed to hooks/columns)
+- **Learnings:**
+  - React 19 context uses `<SettingsContext value={...}>` (not `.Provider`) for the new context API
+  - `useCallback` for `updateSettings` prevents unnecessary re-renders of consumers
+  - Near strike threshold stored as decimal (0.05) but displayed as integer percentage (5%) — multiply/divide by 100 at the form boundary
+  - `useState(loadSettings)` with a function reference (not call) defers localStorage read to first render only
+  - Adding thresholds as optional params with defaults to existing functions (`isPriceStale`, `isNearStrike`, `computeAlerts`) maintains backward compatibility
+  - Settings dependencies added to `useMemo` for `columns` and `allAlerts` ensure immediate reactivity when settings change
+---
+
+## 2026-02-22 - US-035
+- What was implemented:
+  - Added column visibility dropdown to `PositionsTable` using shadcn/ui DropdownMenu with `DropdownMenuCheckboxItem`
+  - TanStack Table's built-in `VisibilityState` + `onColumnVisibilityChange` for state management
+  - Column visibility persisted per table via localStorage: `wheelhouse_open_col_vis` and `wheelhouse_history_col_vis`
+  - Actions column marked with `enableHiding: false` to prevent hiding
+  - Added filter bar to Open Positions page: ticker search (auto-uppercase), type (Select), account (Select), expiration date range (From/To)
+  - Filter bar matches the History page pattern for consistent UX
+  - Both Open Positions and History tables now have `storageKey` prop for column visibility persistence
+  - Added `overflow-x-auto` to Dashboard ticker table for consistent responsive horizontal scrolling
+  - Installed shadcn/ui `dropdown-menu` and `checkbox` components
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/components/PositionsTable.tsx` (modified — added column visibility state, dropdown, storageKey prop, localStorage persistence)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added filter bar, storageKey to PositionsTable)
+  - `frontend/src/pages/History.tsx` (modified — added storageKey to PositionsTable)
+  - `frontend/src/pages/Dashboard.tsx` (modified — added overflow-x-auto to ticker table)
+  - `frontend/src/components/ui/dropdown-menu.tsx` (new — shadcn/ui DropdownMenu)
+  - `frontend/src/components/ui/checkbox.tsx` (new — shadcn/ui Checkbox)
+- **Learnings:**
+  - TanStack Table has built-in column visibility via `VisibilityState` + `onColumnVisibilityChange` — no custom state management needed
+  - `column.getCanHide()` defaults to `true`; set `enableHiding: false` on column defs to exclude from visibility toggle (e.g., actions column)
+  - `DropdownMenuCheckboxItem` from shadcn/ui maps perfectly to column visibility toggles — `checked={col.getIsVisible()}` + `onCheckedChange` to toggle
+  - Per-table localStorage keys (not shared settings context) are cleaner for column visibility since open vs closed tables have different column sets
+  - `typeof col.columnDef.header === "string"` check needed to display column names in dropdown — non-string headers (render functions) fall back to `col.id`
+  - Filter bar pattern (from History.tsx) reused on OpenPositions with `PositionFilters` type — consistent UX across pages
 ---

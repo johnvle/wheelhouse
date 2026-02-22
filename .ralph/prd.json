@@ -541,7 +541,7 @@
     "phase": 5,
     "priority": 35,
     "tags": ["frontend", "ux"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-036",
