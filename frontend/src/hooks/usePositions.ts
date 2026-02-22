@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Position, PositionStatus } from "@/types/position";
-
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+import { useAuth } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/api";
 
 interface UsePositionsParams {
   status?: PositionStatus;
@@ -20,27 +20,16 @@ async function fetchPositions(
   if (params.sort) searchParams.set("sort", params.sort);
   if (params.order) searchParams.set("order", params.order);
 
-  const url = `${API_BASE}/api/v1/positions?${searchParams.toString()}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch positions: ${res.status}`);
-  }
-  return res.json();
+  return apiFetch(`/api/v1/positions?${searchParams.toString()}`, token);
 }
 
-export function usePositions(
-  params: UsePositionsParams = {},
-  token: string | null = null
-) {
+export function usePositions(params: UsePositionsParams = {}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? null;
+
   return useQuery<Position[]>({
     queryKey: ["positions", params],
     queryFn: () => fetchPositions(params, token),
+    enabled: !!token,
   });
 }

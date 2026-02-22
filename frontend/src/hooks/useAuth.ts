@@ -1,23 +1,10 @@
-// Minimal auth stub — US-018 will replace with Supabase Auth
-// For now, returns a dummy user so the app is accessible during development
+import { useContext } from "react";
+import { AuthContext, type AuthContextValue } from "@/contexts/AuthContext";
 
-import { useState } from "react";
-
-interface AuthUser {
-  id: string;
-  email: string;
-}
-
-interface AuthState {
-  user: AuthUser | null;
-  loading: boolean;
-}
-
-export function useAuth(): AuthState {
-  // TODO: Replace with Supabase auth context in US-018
-  const [state] = useState<AuthState>({
-    user: { id: "dev-user", email: "dev@localhost" },
-    loading: false,
-  });
-  return state;
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return ctx;
 }

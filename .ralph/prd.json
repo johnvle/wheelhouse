@@ -272,7 +272,7 @@
     "phase": 1,
     "priority": 18,
     "tags": ["frontend", "auth"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-019",

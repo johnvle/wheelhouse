@@ -11,6 +11,9 @@
 - Layout: Nested `<Route element={<Layout />}>` with `<Outlet />` for shared sidebar; `NavLink` for active state
 - Auth guard: `<Route element={<AuthGuard />}>` wraps authenticated routes; redirects to `/login` via `<Navigate />`
 - Pages: `src/pages/` for route components; `src/components/` for shared UI (Layout, AuthGuard)
+- Supabase client: `src/lib/supabase.ts` initialized from `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
+- Auth: `AuthProvider` in `src/contexts/AuthContext.tsx`; `useAuth()` hook from `src/hooks/useAuth.ts`
+- API: `apiFetch()` in `src/lib/api.ts` — wraps fetch with auth token attachment; use `VITE_API_BASE_URL` env var
 - By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
 - PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
 - Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
@@ -446,4 +449,30 @@
   - Nested `<Route element={<AuthGuard />}>` with `<Outlet />` cleanly wraps all authenticated routes
   - `end` prop on NavLink for `/` index route prevents it from matching all paths
   - Layout route pattern: `<Route element={<Layout />}>` → child routes render inside Layout's `<Outlet />`
+---
+
+## 2026-02-22 - US-018
+- What was implemented:
+  - Installed `@supabase/supabase-js` and created Supabase client (`src/lib/supabase.ts`) using `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+  - Created `AuthProvider` context (`src/contexts/AuthContext.tsx`) exposing: `user`, `session`, `loading`, `signIn`, `signOut`
+  - Auth state initialized from `supabase.auth.getSession()` and kept in sync via `onAuthStateChange` listener
+  - Token refresh is handled automatically by the Supabase client (built-in)
+  - Updated `useAuth` hook to consume the real `AuthContext` (replaced dev stub)
+  - Created `apiFetch` utility (`src/lib/api.ts`) that attaches `Authorization: Bearer <token>` automatically
+  - Updated `usePositions` hook to get token from auth context and pass to `apiFetch`
+  - Wrapped App with `AuthProvider` in `main.tsx`
+- Files changed:
+  - `frontend/package.json` (modified — added @supabase/supabase-js)
+  - `frontend/src/lib/supabase.ts` (new — Supabase client initialization)
+  - `frontend/src/lib/api.ts` (new — fetch wrapper with auth token)
+  - `frontend/src/contexts/AuthContext.tsx` (new — AuthProvider with signIn/signOut)
+  - `frontend/src/hooks/useAuth.ts` (rewritten — now uses AuthContext)
+  - `frontend/src/hooks/usePositions.ts` (modified — uses apiFetch + auth token from context)
+  - `frontend/src/main.tsx` (modified — wrapped with AuthProvider)
+- **Learnings:**
+  - `@supabase/supabase-js` handles token refresh internally via `onAuthStateChange` with `TOKEN_REFRESHED` event
+  - `supabase.auth.getSession()` returns the initial session (from localStorage); `onAuthStateChange` keeps it updated
+  - React 19 context uses `<AuthContext value={...}>` (not `.Provider`) via the new context API
+  - `session.access_token` is the JWT to send to the backend; session is `null` when not authenticated
+  - `enabled: !!token` in useQuery prevents API calls when not authenticated
 ---
