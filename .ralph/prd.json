@@ -349,7 +349,7 @@
     "phase": 2,
     "priority": 23,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-024",
@@ -365,7 +365,7 @@
     "phase": 2,
     "priority": 24,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-025",
@@ -381,7 +381,7 @@
     "phase": 2,
     "priority": 25,
     "tags": ["frontend", "positions"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-026",
@@ -397,7 +397,7 @@
     "phase": 2,
     "priority": 26,
     "tags": ["frontend", "positions", "history"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-027",
@@ -413,7 +413,7 @@
     "phase": 3,
     "priority": 27,
     "tags": ["frontend", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-028",
@@ -429,7 +429,7 @@
     "phase": 3,
     "priority": 28,
     "tags": ["frontend", "dashboard"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-029",
@@ -445,7 +445,7 @@
     "phase": 4,
     "priority": 29,
     "tags": ["backend", "api", "prices"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-030",
@@ -461,7 +461,7 @@
     "phase": 4,
     "priority": 30,
     "tags": ["frontend", "prices"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-031",
@@ -541,6 +541,23 @@
     "phase": 5,
     "priority": 35,
     "tags": ["frontend", "ux"],
+    "passes": false
+  },
+  {
+    "id": "US-036",
+    "title": "QA validation pass and testing tickets",
+    "description": "Meta-ticket for creating testing and QA sub-tickets that validate all major work from US-001 through US-035. Create as many sub-tickets as needed to thoroughly test and validate all prior work against the spec.",
+    "acceptance_criteria": [
+      "All backend endpoints are tested for correctness, edge cases, and auth enforcement",
+      "All frontend pages and components are tested for spec adherence, UX consistency, and error handling",
+      "Code quality audit: identify and resolve code smells, dead code, inconsistent patterns, and missing types",
+      "Product adherence: validate each prior ticket's acceptance criteria against the actual implementation (test against the spec file)",
+      "Clean code practices: ensure consistent naming, proper error handling, no hardcoded values, and DRY principles",
+      "Create as many sub-tickets as deemed necessary to cover all areas thoroughly"
+    ],
+    "phase": 6,
+    "priority": 36,
+    "tags": ["qa", "testing", "refactor"],
     "passes": false
   }
 ]
