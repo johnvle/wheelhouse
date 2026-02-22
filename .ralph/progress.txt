@@ -188,3 +188,23 @@
   - `exclude_unset=True` in `model_dump()` is critical for PATCH — only applies fields the client actually sent
   - Filter by both `Account.id == account_id` and `Account.user_id == user_id` in a single query ensures user isolation and returns 404 for other users' accounts
 ---
+
+## 2026-02-22 - US-008
+- What was implemented:
+  - Created `app/routers/positions.py` with `POST /api/v1/positions` endpoint
+  - Validates `account_id` belongs to authenticated user (returns 400 if not)
+  - Uppercases `ticker` before storage
+  - Creates position with all required fields + optional fields (multiplier, open_fees, notes, tags)
+  - Returns `PositionResponse` with computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc)
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_positions.py` with 9 tests covering: success, ticker uppercase, invalid account (400), optional fields, auth required (401), missing fields (422), invalid type (422), computed fields verification, CASH_SECURED_PUT type
+- Files changed:
+  - `backend/app/routers/positions.py` (new)
+  - `backend/app/main.py` (modified — added positions router)
+  - `backend/tests/test_positions.py` (new)
+- **Learnings:**
+  - Account ownership validation for positions uses same `_FakeQuery` pattern but returns 400 (not 404) since it's a validation error on the request body
+  - `body.type.value` extracts the enum string value for storage in the ORM model (same pattern as Broker enum)
+  - `body.ticker.upper()` handles ticker uppercasing at the router level, not schema level
+  - Mock `db.refresh()` side_effect must set all fields the ORM object would have after DB round-trip, including server defaults (status, close_fees, etc.)
+---
