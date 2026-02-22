@@ -397,7 +397,7 @@
     "phase": 2,
     "priority": 26,
     "tags": ["frontend", "positions", "history"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-027",

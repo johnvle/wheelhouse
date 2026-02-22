@@ -155,6 +155,91 @@ export function openPositionColumns(
   return cols;
 }
 
+interface ClosedPositionColumnOptions {
+  accountNames?: Record<string, string>;
+}
+
+export function closedPositionColumns(
+  options?: ClosedPositionColumnOptions
+): ColumnDef<Position>[] {
+  const accountNames = options?.accountNames;
+
+  return [
+    {
+      accessorKey: "ticker",
+      header: "Ticker",
+    },
+    {
+      accessorKey: "type",
+      header: "Type",
+      cell: ({ getValue }) => {
+        const v = getValue<string>();
+        return v === "COVERED_CALL" ? "CC" : "CSP";
+      },
+    },
+    {
+      accessorKey: "account_id",
+      header: "Account",
+      cell: ({ getValue }) => {
+        const id = getValue<string>();
+        return accountNames?.[id] ?? "—";
+      },
+    },
+    {
+      accessorKey: "strike_price",
+      header: "Strike",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "contracts",
+      header: "Contracts",
+    },
+    {
+      accessorKey: "premium_total",
+      header: "Premium Total",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "premium_net",
+      header: "Premium Net",
+      cell: ({ getValue }) => currencyFmt.format(getValue<number>()),
+    },
+    {
+      accessorKey: "open_date",
+      header: "Open Date",
+    },
+    {
+      accessorKey: "close_date",
+      header: "Close Date",
+    },
+    {
+      accessorKey: "outcome",
+      header: "Outcome",
+      cell: ({ row }) => {
+        const outcome = row.original.outcome;
+        const rollGroupId = row.original.roll_group_id;
+        if (outcome === "ROLLED" && rollGroupId) {
+          return (
+            <span className="inline-flex items-center gap-1">
+              {outcome}
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-blue-500"
+                title={`Roll group: ${rollGroupId.slice(0, 8)}`}
+              />
+            </span>
+          );
+        }
+        return outcome ?? "—";
+      },
+    },
+    {
+      accessorKey: "annualized_roc",
+      header: "Ann. ROC",
+      cell: ({ getValue }) => pctFmt.format(getValue<number>()),
+    },
+  ];
+}
+
 export default function PositionsTable({
   data,
   columns,

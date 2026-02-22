@@ -605,3 +605,49 @@
   - `useMutation` with `{ id, body }` param object cleanly handles mutations that need both a resource ID and request body
   - Close dialog resets state on `open` change via `useEffect([open])` to handle reopening for different positions
 ---
+
+## 2026-02-22 - US-025
+- What was implemented:
+  - Created `RollPositionDialog` component with two-step flow: Step 1 closes old position (outcome pre-set to ROLLED), Step 2 opens new position prefilled from old
+  - Step 1 fields: close date (default today), close price per share (optional), close fees (optional)
+  - Step 2 fields: full Add Position form prefilled with old position's ticker, type, account, contracts, multiplier
+  - User can modify any prefilled fields before submitting
+  - Created `useRollPosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Added "Roll" action button alongside "Close" in the Open Positions table actions column
+  - Extended `OpenPositionColumnOptions` interface with `onRoll` callback
+  - Actions column now renders both Close and Roll buttons in a flex container
+  - On success, dialog closes and positions table refreshes via query invalidation
+  - TypeScript typecheck, Vite build, and all 170 backend tests pass
+- Files changed:
+  - `frontend/src/components/RollPositionDialog.tsx` (new — two-step roll modal)
+  - `frontend/src/hooks/useRollPosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added onRoll to options, multi-button actions column)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — wired roll dialog, mutation, and action)
+- **Learnings:**
+  - Two-step dialog pattern: use `step` state (1 | 2) with conditional form rendering; Back button sets `setStep(1)`, Next validates and sets `setStep(2)`
+  - Prefilling from old position: set state in `useEffect([open, position])` — ticker, type, account_id, contracts, multiplier copied; strike, premium, expiration left blank for user to fill
+  - Multiple action buttons in TanStack Table: wrap in a `<div className="flex gap-1">` and conditionally render each based on callback presence
+  - `PositionRollBody` uses nested `close` and `open` objects matching the backend schema; outcome is NOT sent by client (backend hardcodes ROLLED)
+---
+
+## 2026-02-22 - US-026
+- What was implemented:
+  - Built History page with closed positions table displaying: ticker, type, account, strike, contracts, premium total, premium net, open date, close date, outcome, annualized ROC
+  - Added `closedPositionColumns` function to `PositionsTable.tsx` for closed-position-specific column definitions
+  - Rolled positions show a blue dot visual indicator next to the outcome with roll_group_id tooltip
+  - Filter bar with: ticker search (auto-uppercased), type (Select), account (Select), outcome (Select: Expired/Assigned/Closed Early/Rolled), date range (From/To date inputs)
+  - Ticker, type, account, and date range filters use backend query params; outcome filter is client-side (backend doesn't support outcome param)
+  - Sorting works on all columns via TanStack Table (reuses PositionsTable component)
+  - Data fetched via `usePositions({ status: "CLOSED", ...filters })` with TanStack Query
+  - Empty state with dashed border and helpful message
+  - Loading and error states displayed
+- Files changed:
+  - `frontend/src/pages/History.tsx` (rewritten — full history page with filters and table)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added closedPositionColumns export)
+- **Learnings:**
+  - `closedPositionColumns` follows same pattern as `openPositionColumns` but with different column set (premium_net, close_date, outcome instead of DTE, collateral)
+  - Rolled position indicator: `row.original.roll_group_id` combined with outcome check provides visual linking for roll groups
+  - Outcome filter must be client-side since the backend `GET /api/v1/positions` doesn't support an `outcome` query param
+  - Filter state with "ALL" sentinel value works well with Select component — conditionally spread into PositionFilters only when not "ALL"
+  - Auto-uppercase on ticker input `onChange` gives immediate visual feedback matching how the backend stores tickers
+---
