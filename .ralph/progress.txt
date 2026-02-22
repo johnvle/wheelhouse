@@ -651,3 +651,26 @@
   - Filter state with "ALL" sentinel value works well with Select component — conditionally spread into PositionFilters only when not "ALL"
   - Auto-uppercase on ticker input `onChange` gives immediate visual feedback matching how the backend stores tickers
 ---
+
+## 2026-02-22 - US-027
+- What was implemented:
+  - Built Dashboard page with summary widgets: Total Premium Collected, Premium MTD, Open Position Count, Upcoming Expirations (next 7 days)
+  - Each widget uses shadcn/ui Card with prominent value formatting (currency for premiums, plain count for position count)
+  - Created `useDashboardSummary` hook using TanStack Query, fetches from `GET /api/v1/dashboard/summary`
+  - Loading skeletons (shadcn/ui Skeleton) display while data is being fetched
+  - Date range filter (From/To date inputs) allows scoping the summary to a custom period, passed as query params to the API
+  - Upcoming expirations rendered as a list of position cards showing ticker, type, contracts, strike, expiration date, and DTE
+  - Empty state for upcoming expirations shows descriptive message
+  - Error state displayed when API call fails
+  - Added shadcn/ui Skeleton component via `npx shadcn@latest add skeleton`
+- Files changed:
+  - `frontend/src/pages/Dashboard.tsx` (rewritten — full dashboard with summary widgets, date filter, loading skeletons)
+  - `frontend/src/hooks/useDashboardSummary.ts` (new — TanStack Query hook for dashboard summary)
+  - `frontend/src/components/ui/skeleton.tsx` (new — shadcn/ui Skeleton component)
+- **Learnings:**
+  - `useDashboardSummary` follows same pattern as `usePositions`: query key includes filter params for automatic refetch on filter change
+  - Card widgets with `text-3xl font-bold` for values and `text-sm font-medium text-muted-foreground` for labels follows dashboard design conventions
+  - `Intl.NumberFormat` with `style: "currency"` gives consistent currency formatting across the app
+  - Upcoming expirations come as full `Position[]` from the API, so the same Position type is reused
+  - Grid layout `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` provides responsive widget layout; upcoming expirations span full width with `col-span-full`
+---
