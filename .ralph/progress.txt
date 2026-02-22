@@ -516,3 +516,24 @@
   - Typed API functions follow consistent pattern: `functionName(params, token)` → `apiFetch<ReturnType>(path, token, options)`
   - `Object.entries(params)` + `URLSearchParams` for clean query string building from filter objects
 ---
+
+## 2026-02-22 - US-021
+- What was implemented:
+  - Built account management section on the Settings page with table showing name, broker, tax treatment
+  - Add Account button opens `AccountFormDialog` modal with name (text), broker (Select dropdown: robinhood, merrill, other), optional tax treatment
+  - Edit button on each row opens same dialog pre-filled with existing account data
+  - `useAccounts`, `useCreateAccount`, `useUpdateAccount` hooks using TanStack Query mutations with `invalidateQueries` on success
+  - Account list auto-refreshes after add/edit via query invalidation
+  - Added shadcn/ui Dialog and Select components
+- Files changed:
+  - `frontend/src/pages/Settings.tsx` (rewritten — account management section)
+  - `frontend/src/components/AccountFormDialog.tsx` (new — add/edit account modal)
+  - `frontend/src/hooks/useAccounts.ts` (new — useAccounts, useCreateAccount, useUpdateAccount)
+  - `frontend/src/components/ui/dialog.tsx` (new — shadcn/ui Dialog)
+  - `frontend/src/components/ui/select.tsx` (new — shadcn/ui Select)
+- **Learnings:**
+  - `useMutation` + `onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] })` auto-refreshes the list after mutations
+  - Single `AccountFormDialog` component handles both add and edit by checking for `account` prop
+  - `useEffect` on `[account, open]` resets form state when dialog opens (prevents stale data)
+  - shadcn/ui Select uses Radix primitives: `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`
+---

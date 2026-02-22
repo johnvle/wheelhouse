@@ -317,7 +317,7 @@
     "phase": 2,
     "priority": 21,
     "tags": ["frontend", "accounts"],
-    "passes": false
+    "passes": true
   },
   {
     "id": "US-022",
