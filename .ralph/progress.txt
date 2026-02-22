@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
+- Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
 - List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
 - _FakeQuery: Add `.order_by()` method for mock chaining on list endpoints
 - Config: Use pydantic-settings with `get_settings()` + `@lru_cache` for lazy loading
@@ -253,4 +255,25 @@
   - When an endpoint makes multiple different `db.query()` calls (e.g., Position lookup then Account validation), use `mock_db.query.side_effect = [query1, query2]` instead of `return_value`
   - Enum and ticker transformations (`.value`, `.upper()`) should happen in the `setattr` loop to handle both create and update consistently
   - `PositionUpdate` schema excluding `user_id` is the cleanest way to enforce "cannot change user_id" — no explicit validation needed
+---
+
+## 2026-02-22 - US-011
+- What was implemented:
+  - Added `PositionClose` Pydantic schema with `outcome` (Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]), `close_date`, optional `close_price_per_share`, optional `close_fees`
+  - Added `POST /api/v1/positions/{id}/close` endpoint to `app/routers/positions.py`
+  - Endpoint looks up position by id + user_id, returns 404 if not found
+  - Returns 400 if position is already CLOSED
+  - Sets status to CLOSED, outcome, close_date, and optional close_price_per_share/close_fees
+  - Response includes recalculated computed fields (premium_net reflects close_fees)
+  - Added 10 tests covering: success, ASSIGNED outcome, CLOSED_EARLY with close_price/fees, already closed (400), not found (404), other user (404), invalid outcome ROLLED (422), computed fields verification, auth required (401), missing required fields (422)
+- Files changed:
+  - `backend/app/schemas/position.py` (modified — added PositionClose)
+  - `backend/app/schemas/__init__.py` (modified — added PositionClose export)
+  - `backend/app/routers/positions.py` (modified — added close endpoint, imported PositionClose)
+  - `backend/tests/test_positions.py` (modified — added 10 close tests)
+- **Learnings:**
+  - `Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]` in Pydantic schema is cleaner than a separate enum for subset validation — gives automatic 422 for ROLLED
+  - Action endpoints (close, roll) use `POST /{id}/action` pattern vs `PATCH /{id}` for updates
+  - Check `position.status == "CLOSED"` before mutating to return 400 for already-closed positions
+  - Optional close fields (`close_price_per_share`, `close_fees`) only set when provided (not None) to avoid overwriting defaults
 ---

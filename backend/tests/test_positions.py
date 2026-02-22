@@ -1078,3 +1078,311 @@ async def test_update_position_exclude_unset(user_id: UUID, auth_headers: dict):
         assert position.tags == ["keep"]
     finally:
         app.dependency_overrides.clear()
+
+
+# --- POST /api/v1/positions/{id}/close ---
+
+
+def _close_body(**overrides) -> dict:
+    defaults = {
+        "outcome": "EXPIRED",
+        "close_date": "2026-02-20",
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+@pytest.mark.asyncio
+async def test_close_position_success(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close sets status to CLOSED and outcome."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id, status="OPEN")
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.status = "CLOSED"
+        obj.outcome = "EXPIRED"
+        obj.close_date = date(2026, 2, 20)
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/close",
+                json=_close_body(),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "CLOSED"
+        assert data["outcome"] == "EXPIRED"
+        assert data["close_date"] == "2026-02-20"
+        mock_db.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_assigned(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close works with ASSIGNED outcome."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id, status="OPEN")
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.status = "CLOSED"
+        obj.outcome = "ASSIGNED"
+        obj.close_date = date(2026, 2, 20)
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/close",
+                json=_close_body(outcome="ASSIGNED"),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        assert resp.json()["outcome"] == "ASSIGNED"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_closed_early_with_close_price(
+    user_id: UUID, auth_headers: dict
+):
+    """POST /api/v1/positions/{id}/close with close_price_per_share and close_fees."""
+    account_id = uuid4()
+    position = _make_position(user_id, account_id, status="OPEN")
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.status = "CLOSED"
+        obj.outcome = "CLOSED_EARLY"
+        obj.close_date = date(2026, 2, 18)
+        obj.close_price_per_share = Decimal("1.50")
+        obj.close_fees = Decimal("0.65")
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/close",
+                json=_close_body(
+                    outcome="CLOSED_EARLY",
+                    close_date="2026-02-18",
+                    close_price_per_share="1.50",
+                    close_fees="0.65",
+                ),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["outcome"] == "CLOSED_EARLY"
+        assert Decimal(str(data["close_price_per_share"])) == Decimal("1.50")
+        assert Decimal(str(data["close_fees"])) == Decimal("0.65")
+        # premium_net includes close_fees
+        assert "premium_net" in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_already_closed(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close returns 400 if already closed."""
+    account_id = uuid4()
+    position = _make_position(
+        user_id, account_id, status="CLOSED", outcome="EXPIRED"
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/close",
+                json=_close_body(),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 400
+        assert "already closed" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_not_found(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close returns 404 if position doesn't exist."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/close",
+                json=_close_body(),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+        assert "position" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_other_users_position(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close returns 404 for other user's position."""
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([])
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/close",
+                json=_close_body(),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_invalid_outcome(user_id: UUID, auth_headers: dict):
+    """POST /api/v1/positions/{id}/close with ROLLED outcome returns 422."""
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/close",
+                json=_close_body(outcome="ROLLED"),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_response_has_computed_fields(
+    user_id: UUID, auth_headers: dict
+):
+    """Close response includes updated computed fields with close_fees in premium_net."""
+    account_id = uuid4()
+    position = _make_position(
+        user_id,
+        account_id,
+        status="OPEN",
+        strike_price=Decimal("100.00"),
+        contracts=1,
+        multiplier=100,
+        premium_per_share=Decimal("5.00"),
+        open_fees=Decimal("1.00"),
+        close_fees=Decimal("0"),
+    )
+
+    mock_db = MagicMock()
+    mock_db.query.return_value = _FakeQuery([position])
+
+    def fake_refresh(obj):
+        obj.status = "CLOSED"
+        obj.outcome = "CLOSED_EARLY"
+        obj.close_date = date(2026, 2, 20)
+        obj.close_price_per_share = Decimal("2.00")
+        obj.close_fees = Decimal("0.65")
+        obj.updated_at = datetime.now(timezone.utc)
+
+    mock_db.refresh.side_effect = fake_refresh
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{position.id}/close",
+                json=_close_body(
+                    outcome="CLOSED_EARLY",
+                    close_price_per_share="2.00",
+                    close_fees="0.65",
+                ),
+                headers=auth_headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # premium_total = 5 * 1 * 100 = 500
+        assert Decimal(str(data["premium_total"])) == Decimal("500.00")
+        # premium_net = 500 - 1.00 - 0.65 = 498.35
+        assert Decimal(str(data["premium_net"])) == Decimal("498.35")
+        assert "collateral" in data
+        assert "roc_period" in data
+        assert "annualized_roc" in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_close_position_requires_auth():
+    """POST /api/v1/positions/{id}/close without auth returns 401."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            f"/api/v1/positions/{uuid4()}/close",
+            json=_close_body(),
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_close_position_missing_required_fields(auth_headers: dict):
+    """POST /api/v1/positions/{id}/close without required fields returns 422."""
+    mock_db = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                f"/api/v1/positions/{uuid4()}/close",
+                json={"outcome": "EXPIRED"},  # Missing close_date
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

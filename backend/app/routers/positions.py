@@ -12,7 +12,12 @@ from app.database import get_db
 from app.models.account import Account
 from app.models.position import Position
 from app.schemas.enums import PositionStatus, PositionType
-from app.schemas.position import PositionCreate, PositionResponse, PositionUpdate
+from app.schemas.position import (
+    PositionClose,
+    PositionCreate,
+    PositionResponse,
+    PositionUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/positions", tags=["positions"])
 
@@ -148,6 +153,37 @@ def update_position(
         if field == "type" and value is not None:
             value = value.value
         setattr(position, field, value)
+
+    db.commit()
+    db.refresh(position)
+    return position
+
+
+@router.post("/{position_id}/close", response_model=PositionResponse)
+def close_position(
+    position_id: UUID,
+    body: PositionClose,
+    user_id: UUID = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    position = (
+        db.query(Position)
+        .filter(Position.id == position_id, Position.user_id == user_id)
+        .first()
+    )
+    if not position:
+        raise HTTPException(status_code=404, detail="Position not found")
+
+    if position.status == "CLOSED":
+        raise HTTPException(status_code=400, detail="Position is already closed")
+
+    position.status = "CLOSED"
+    position.outcome = body.outcome
+    position.close_date = body.close_date
+    if body.close_price_per_share is not None:
+        position.close_price_per_share = body.close_price_per_share
+    if body.close_fees is not None:
+        position.close_fees = body.close_fees
 
     db.commit()
     db.refresh(position)
