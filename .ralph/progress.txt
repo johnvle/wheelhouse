@@ -1,4 +1,32 @@
 ## Codebase Patterns
+- Frontend Tailwind: Tailwind CSS v4 uses `@tailwindcss/vite` plugin + `@import "tailwindcss"` in CSS (no tailwind.config.js needed)
+- shadcn/ui: Requires `@/*` path aliases in BOTH `tsconfig.json` (root) AND `tsconfig.app.json` for CLI to detect
+- shadcn/ui init: Use `npx shadcn@latest init -d` for non-interactive defaults; adds `components.json`, `src/lib/utils.ts`, CSS variables
+- shadcn/ui add: Use `npx shadcn@latest add <component> -y` to add components non-interactively
+- Frontend path aliases: Configure in `tsconfig.json` (for shadcn CLI), `tsconfig.app.json` (for TS), `vite.config.ts` (for Vite bundling)
+- Frontend types: `src/types/` for shared TypeScript interfaces matching backend schemas
+- Frontend hooks: `src/hooks/` for TanStack Query hooks (e.g., `usePositions`)
+- TanStack Query: `QueryClientProvider` wraps App in `main.tsx`; `ReactQueryDevtools` added for dev
+- Routing: React Router v7 from `react-router` package; `BrowserRouter` + `Routes` + `Route` in `App.tsx`
+- Layout: Nested `<Route element={<Layout />}>` with `<Outlet />` for shared sidebar; `NavLink` for active state
+- Auth guard: `<Route element={<AuthGuard />}>` wraps authenticated routes; redirects to `/login` via `<Navigate />`
+- Pages: `src/pages/` for route components; `src/components/` for shared UI (Layout, AuthGuard)
+- Supabase client: `src/lib/supabase.ts` initialized from `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`
+- Auth: `AuthProvider` in `src/contexts/AuthContext.tsx`; `useAuth()` hook from `src/hooks/useAuth.ts`
+- API: `apiFetch()` in `src/lib/api.ts` — wraps fetch with auth token attachment; use `VITE_API_BASE_URL` env var
+- By-ticker endpoint: Single query → `defaultdict(list)` grouping → compute per-ticker stats in Python
+- PositionResponse.model_validate(): Reuse computed fields (annualized_roc) from schema for aggregation endpoints
+- Dashboard endpoints: New router `app/routers/dashboard.py`; separate queries for date-scoped positions vs open positions
+- Premium calculation: Closed positions use premium_net (total - open_fees - close_fees); open positions use premium_total
+- Prices: yfinance lazy import + in-memory dict cache with `time.time()` TTL; mock `_fetch_prices` in tests (not yfinance internals)
+- Prices hook: `usePrices(tickers)` with `refetchInterval: 60_000`; deduplicate tickers for stable query key
+- Price column: `accessorFn` for sort value from external map; `isPriceStale()` and `isNearStrike()` helpers
+- Close/action endpoints: Use `POST /{id}/action` pattern; check status before mutating to return 400 for invalid state
+- Literal types: Use `Literal["A", "B", "C"]` in Pydantic schemas for subset validation (e.g., close outcome excludes ROLLED)
+- List endpoints: Use `Optional` query params with `Query(None)`, chain `.filter()` conditionally
+- _FakeQuery: Add `.order_by()` method for mock chaining on list endpoints
+- Compound endpoints: Use nested Pydantic schemas (e.g., `PositionRoll` with `close` and `open` sub-objects) for multi-operation payloads
+- Atomicity: Single `db.commit()` after all mutations ensures both close + create happen in one transaction
 - Config: Use pydantic-settings with `get_settings()` + `@lru_cache` for lazy loading
 - Database: `app/database.py` has `Base`, `SessionLocal`, `get_db()` dependency
 - Alembic: env.py imports `get_settings()` and `Base` from app modules
@@ -26,6 +54,17 @@
 - Schemas: `from_attributes=True` enables ORM model → Pydantic response via `model_validate(orm_obj)`
 - Schemas: Enums are `str, Enum` subclasses for JSON serialization and string comparison
 - Schemas: Access `model_fields` on the class, not the instance (Pydantic v2.11 deprecation)
+- Routers: `app/routers/` with APIRouter, prefix `/api/v1/<resource>`, wired via `app.include_router()` in main.py
+- Router tests: Use `app.dependency_overrides[get_db]` to inject mock DB session; clear in `finally` block
+- Router tests: `_FakeQuery` helper class chains `.filter().all()` / `.filter().first()` for mock DB queries
+- Router tests: Use `_make_account()` / `_make_token()` helpers for test fixtures
+- Enum values: When storing Broker enum to DB, use `.value` to get the string (e.g., `body.broker.value`)
+- PATCH pattern: `model_dump(exclude_unset=True)` + `setattr` loop; handle `.value`/`.upper()` in the loop
+- Mock query sequencing: `mock_db.query.side_effect = [query1, query2]` for multiple distinct queries in one endpoint
+- Settings: `SettingsContext` with `useSettings()` hook; `AppSettings` type; localStorage persistence under `wheelhouse_settings` key
+- Settings wiring: Pass settings as params to hooks/column functions (not import context inside); keeps components testable
+- Column visibility: TanStack Table `VisibilityState` + `onColumnVisibilityChange`; persist per-table in localStorage via `storageKey` prop
+- Filter bar: Reuse History.tsx pattern (Input + Select components, `PositionFilters` type) for consistent filter UI across pages
 
 ---
 
@@ -160,4 +199,687 @@
   - `from_attributes=True` in model_config enables `ModelClass.model_validate(orm_object)` for ORM → Pydantic conversion
   - `model_fields` should be accessed on the class not instance (deprecated in Pydantic v2.11)
   - Computed fields for annualized_roc need zero-guard on both collateral and days_in_trade
+---
+
+## 2026-02-22 - US-007
+- What was implemented:
+  - Created `app/routers/accounts.py` with 3 CRUD endpoints:
+    - `GET /api/v1/accounts` — lists authenticated user's accounts
+    - `POST /api/v1/accounts` — creates account with name, broker, optional tax_treatment (returns 201)
+    - `PATCH /api/v1/accounts/{id}` — updates account fields; returns 404 if not found or belongs to another user
+  - All endpoints use `get_current_user` dependency to scope queries by `user_id`
+  - All responses use `AccountResponse` schema with `from_attributes=True` for ORM → Pydantic conversion
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_accounts.py` with 13 tests covering: list (2), auth (1), create (4), update (5), schema validation (1)
+  - Tests use `dependency_overrides[get_db]` with mock DB session (no live DB needed)
+- Files changed:
+  - `backend/app/routers/accounts.py` (new)
+  - `backend/app/main.py` (modified — added router import and include)
+  - `backend/tests/test_accounts.py` (new)
+- **Learnings:**
+  - `app.dependency_overrides[get_db]` is the standard FastAPI testing pattern to inject mock DB without real connections
+  - Broker enum `.value` must be extracted when setting on ORM model to store the raw string
+  - `exclude_unset=True` in `model_dump()` is critical for PATCH — only applies fields the client actually sent
+  - Filter by both `Account.id == account_id` and `Account.user_id == user_id` in a single query ensures user isolation and returns 404 for other users' accounts
+---
+
+## 2026-02-22 - US-008
+- What was implemented:
+  - Created `app/routers/positions.py` with `POST /api/v1/positions` endpoint
+  - Validates `account_id` belongs to authenticated user (returns 400 if not)
+  - Uppercases `ticker` before storage
+  - Creates position with all required fields + optional fields (multiplier, open_fees, notes, tags)
+  - Returns `PositionResponse` with computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc)
+  - Wired router into `app/main.py` via `app.include_router()`
+  - Created `tests/test_positions.py` with 9 tests covering: success, ticker uppercase, invalid account (400), optional fields, auth required (401), missing fields (422), invalid type (422), computed fields verification, CASH_SECURED_PUT type
+- Files changed:
+  - `backend/app/routers/positions.py` (new)
+  - `backend/app/main.py` (modified — added positions router)
+  - `backend/tests/test_positions.py` (new)
+- **Learnings:**
+  - Account ownership validation for positions uses same `_FakeQuery` pattern but returns 400 (not 404) since it's a validation error on the request body
+  - `body.type.value` extracts the enum string value for storage in the ORM model (same pattern as Broker enum)
+  - `body.ticker.upper()` handles ticker uppercasing at the router level, not schema level
+  - Mock `db.refresh()` side_effect must set all fields the ORM object would have after DB round-trip, including server defaults (status, close_fees, etc.)
+---
+
+## 2026-02-22 - US-009
+- What was implemented:
+  - Added `GET /api/v1/positions` endpoint to `app/routers/positions.py` with filtering and sorting
+  - Supports query params: status, ticker, type, account_id, expiration_start, expiration_end, sort, order (asc/desc)
+  - Default sort is `open_date` descending
+  - Ticker filter is case-insensitive (uppercased before comparison)
+  - Invalid sort columns fall back to `open_date`
+  - Returns empty list (not error) when no positions match
+  - Each position includes computed fields via `PositionResponse`
+  - Added 11 tests covering: list (2), filters (status, ticker, type, account_id, expiration range), sorting (2), computed fields, auth
+  - Updated `_FakeQuery` to support `.order_by()` chaining
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added GET endpoint, imports, SORTABLE_COLUMNS)
+  - `backend/tests/test_positions.py` (modified — added 11 GET tests, updated _FakeQuery)
+- **Learnings:**
+  - `Optional` query params with `Query(None)` cleanly handle optional filters — only add `.filter()` when param is not None
+  - `getattr(Position, sort_col_name)` dynamically resolves ORM columns for sorting; validate against a whitelist to prevent injection
+  - Enum query params (PositionStatus, PositionType) are auto-validated by FastAPI; use `.value` to compare against DB strings
+  - `_FakeQuery.order_by()` just returns `self` since mock doesn't need real sorting — tests verify the endpoint accepts sort params without error
+---
+
+## 2026-02-22 - US-010
+- What was implemented:
+  - Added `PATCH /api/v1/positions/{id}` endpoint to `app/routers/positions.py`
+  - Updates any subset of editable fields via `PositionUpdate` schema (excludes `user_id`, `status`, `outcome`)
+  - Returns 404 if position doesn't exist or belongs to another user
+  - Cannot change `user_id` (field not in `PositionUpdate` schema, so it's silently ignored)
+  - Ticker is uppercased if provided; type enum stored as `.value` string
+  - Validates new `account_id` belongs to user if provided (returns 400 if not)
+  - `updated_at` refreshed via `db.commit()` + `db.refresh()` (server-side default)
+  - Response includes recalculated computed fields
+  - Added 11 tests covering: success, not found, other user's position, cannot change user_id, ticker uppercase, type enum storage, invalid account_id, updated_at refresh, computed fields, auth required, exclude_unset behavior
+- Files changed:
+  - `backend/app/routers/positions.py` (modified — added PATCH endpoint, imported PositionUpdate)
+  - `backend/tests/test_positions.py` (modified — added 11 PATCH tests)
+- **Learnings:**
+  - `model_dump(exclude_unset=True)` is critical for PATCH — only applies fields the client actually sent, preserving other fields
+  - When an endpoint makes multiple different `db.query()` calls (e.g., Position lookup then Account validation), use `mock_db.query.side_effect = [query1, query2]` instead of `return_value`
+  - Enum and ticker transformations (`.value`, `.upper()`) should happen in the `setattr` loop to handle both create and update consistently
+  - `PositionUpdate` schema excluding `user_id` is the cleanest way to enforce "cannot change user_id" — no explicit validation needed
+---
+
+## 2026-02-22 - US-011
+- What was implemented:
+  - Added `PositionClose` Pydantic schema with `outcome` (Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]), `close_date`, optional `close_price_per_share`, optional `close_fees`
+  - Added `POST /api/v1/positions/{id}/close` endpoint to `app/routers/positions.py`
+  - Endpoint looks up position by id + user_id, returns 404 if not found
+  - Returns 400 if position is already CLOSED
+  - Sets status to CLOSED, outcome, close_date, and optional close_price_per_share/close_fees
+  - Response includes recalculated computed fields (premium_net reflects close_fees)
+  - Added 10 tests covering: success, ASSIGNED outcome, CLOSED_EARLY with close_price/fees, already closed (400), not found (404), other user (404), invalid outcome ROLLED (422), computed fields verification, auth required (401), missing required fields (422)
+- Files changed:
+  - `backend/app/schemas/position.py` (modified — added PositionClose)
+  - `backend/app/schemas/__init__.py` (modified — added PositionClose export)
+  - `backend/app/routers/positions.py` (modified — added close endpoint, imported PositionClose)
+  - `backend/tests/test_positions.py` (modified — added 10 close tests)
+- **Learnings:**
+  - `Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]` in Pydantic schema is cleaner than a separate enum for subset validation — gives automatic 422 for ROLLED
+  - Action endpoints (close, roll) use `POST /{id}/action` pattern vs `PATCH /{id}` for updates
+  - Check `position.status == "CLOSED"` before mutating to return 400 for already-closed positions
+  - Optional close fields (`close_price_per_share`, `close_fees`) only set when provided (not None) to avoid overwriting defaults
+---
+
+## 2026-02-22 - US-012
+- What was implemented:
+  - Added `PositionRollClose`, `PositionRoll`, and `PositionRollResponse` Pydantic schemas to `app/schemas/position.py`
+  - `PositionRoll` uses nested schemas: `close` (PositionRollClose) and `open` (PositionCreate) for the two-part payload
+  - `PositionRollResponse` returns both `closed` and `opened` PositionResponse objects
+  - Added `POST /api/v1/positions/{id}/roll` endpoint to `app/routers/positions.py`
+  - Endpoint: looks up position (404 if not found), checks not already closed (400), validates new account_id (400), generates shared `roll_group_id`, closes old position with outcome=ROLLED, creates new position, single `db.commit()` for atomicity
+  - Returns both closed and opened positions with computed fields
+  - Updated `app/schemas/__init__.py` to export new schemas
+  - Added 11 tests covering: success, close_price/fees, not found (404), other user (404), already closed (400), invalid account (400), atomic transaction, ticker uppercase, computed fields, auth required (401), missing fields (422)
+- Files changed:
+  - `backend/app/schemas/position.py` (modified — added PositionRollClose, PositionRoll, PositionRollResponse)
+  - `backend/app/schemas/__init__.py` (modified — added new exports)
+  - `backend/app/routers/positions.py` (modified — added roll endpoint, imported new schemas + uuid4)
+  - `backend/tests/test_positions.py` (modified — added 11 roll tests)
+- **Learnings:**
+  - Nested Pydantic schemas (close + open sub-objects) cleanly model compound operations like roll
+  - Reusing `PositionCreate` as the `open` field type in `PositionRoll` avoids duplicating validation logic
+  - Single `db.commit()` after both close mutation and `db.add(new_position)` ensures atomicity without explicit transaction management
+  - `mock_db.query.side_effect = [position_query, account_query]` handles the two sequential queries (Position lookup then Account validation)
+  - `fake_refresh` with a counter (`refresh_call_count`) differentiates between refreshing the closed position vs the new position
+  - Outcome is hardcoded to "ROLLED" in the endpoint (not sent by client), unlike the close endpoint which accepts outcome from the client
+---
+
+## 2026-02-22 - US-013
+- What was implemented:
+  - Created `app/schemas/dashboard.py` with `DashboardSummaryResponse` schema (total_premium_collected, premium_mtd, open_position_count, upcoming_expirations)
+  - Created `app/routers/dashboard.py` with `GET /api/v1/dashboard/summary` endpoint
+  - Supports optional `start`/`end` date query params to scope total_premium_collected by open_date
+  - `total_premium_collected`: premium_net for closed positions + premium_total for open
+  - `premium_mtd`: same calculation filtered to current month
+  - `open_position_count`: count of OPEN positions (not date-scoped)
+  - `upcoming_expirations`: OPEN positions expiring within 7 days, returned as full PositionResponse objects with computed fields
+  - Returns zeroes and empty list when no data exists
+  - Wired router into `app/main.py`
+  - Updated `app/schemas/__init__.py` with `DashboardSummaryResponse` export
+  - Created `tests/test_dashboard.py` with 9 tests covering: no data (zeroes), mixed open/closed, MTD scoping, upcoming expirations 7-day cutoff, date range params, closed premium_net, open premium_total, auth required, computed fields in upcoming expirations
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (new)
+  - `backend/app/routers/dashboard.py` (new)
+  - `backend/app/main.py` (modified — added dashboard router)
+  - `backend/app/schemas/__init__.py` (modified — added DashboardSummaryResponse)
+  - `backend/tests/test_dashboard.py` (new)
+- **Learnings:**
+  - Dashboard endpoint uses two separate DB queries: one for date-scoped positions (all statuses) and one for open positions
+  - Premium calculation varies by status: closed uses premium_net (total - fees), open uses premium_total (fees unknown yet)
+  - MTD filtering is done in Python from the already-fetched positions, not as a separate query
+  - `mock_db.query.side_effect = [all_query, open_query]` handles the two sequential queries in the endpoint
+  - `upcoming_expirations` returns full PositionResponse objects (with computed fields), not a simple count
+---
+
+## 2026-02-22 - US-014
+- What was implemented:
+  - Added `TickerSummary` Pydantic schema to `app/schemas/dashboard.py` with fields: ticker, total_premium, trade_count, avg_annualized_roc
+  - Added `GET /api/v1/dashboard/by-ticker` endpoint to `app/routers/dashboard.py`
+  - Supports optional `start`/`end` date query params to scope by open_date
+  - Groups positions by ticker using `defaultdict(list)`
+  - Computes total_premium using same `_compute_premium()` helper (closed → premium_net, open → premium_total)
+  - Computes avg_annualized_roc by validating each position through `PositionResponse.model_validate()` to leverage computed fields
+  - Results sorted by total_premium descending
+  - Returns empty list when no positions exist
+  - Updated `app/schemas/__init__.py` to export `TickerSummary`
+  - Added 7 tests covering: empty data, grouping, sorting, date range, avg_annualized_roc, premium calculation (open vs closed), auth required
+- Files changed:
+  - `backend/app/schemas/dashboard.py` (modified — added TickerSummary)
+  - `backend/app/routers/dashboard.py` (modified — added by-ticker endpoint, new imports)
+  - `backend/app/schemas/__init__.py` (modified — added TickerSummary export)
+  - `backend/tests/test_dashboard.py` (modified — added 7 by-ticker tests)
+- **Learnings:**
+  - `PositionResponse.model_validate(orm_mock)` reuses computed fields (annualized_roc) without reimplementing the calculation
+  - `defaultdict(list)` is cleaner than manual grouping for Python-side aggregation
+  - By-ticker endpoint uses a single DB query (unlike summary which uses two) since it doesn't need separate open-position queries
+  - `mock_db.query.return_value` (not `side_effect`) works for single-query endpoints
+---
+
+## 2026-02-22 - US-015
+- What was implemented:
+  - Installed Tailwind CSS v4 (`tailwindcss`, `@tailwindcss/vite`) and configured as a Vite plugin
+  - Set up `@/` path aliases in `tsconfig.json`, `tsconfig.app.json`, and `vite.config.ts` (all three needed)
+  - Replaced boilerplate `index.css` with Tailwind import; shadcn/ui init added CSS variables and theme config
+  - Initialized shadcn/ui (`npx shadcn@latest init -d`): created `components.json`, `src/lib/utils.ts` (cn utility), installed `clsx`, `tailwind-merge`, `class-variance-authority`, `radix-ui`, `lucide-react`, `tw-animate-css`
+  - Added Button component via `npx shadcn@latest add button -y`
+  - Updated `App.tsx` to use shadcn/ui Button with Tailwind utility classes, removed Vite boilerplate
+  - Cleared `App.css` (no longer needed with Tailwind)
+  - TypeScript typecheck and Vite production build both pass
+- Files changed:
+  - `frontend/package.json` (modified — new dependencies)
+  - `frontend/vite.config.ts` (modified — added tailwindcss plugin and path aliases)
+  - `frontend/tsconfig.json` (modified — added compilerOptions with path aliases)
+  - `frontend/tsconfig.app.json` (modified — added path aliases)
+  - `frontend/src/index.css` (rewritten — Tailwind import + shadcn/ui CSS variables)
+  - `frontend/src/App.tsx` (rewritten — uses shadcn/ui Button with Tailwind classes)
+  - `frontend/src/App.css` (cleared — replaced by Tailwind utilities)
+  - `frontend/components.json` (new — shadcn/ui configuration)
+  - `frontend/src/lib/utils.ts` (new — cn utility function)
+  - `frontend/src/components/ui/button.tsx` (new — shadcn/ui Button component)
+- **Learnings:**
+  - Tailwind CSS v4 no longer uses `tailwind.config.js`; configuration is done via CSS `@theme` blocks and the `@tailwindcss/vite` plugin
+  - shadcn/ui CLI reads `tsconfig.json` (root), not `tsconfig.app.json` — path aliases must be in the root tsconfig for the CLI to validate
+  - `npx shadcn@latest init -d` uses all defaults (new-york style, neutral base color, CSS variables enabled) — fully non-interactive
+  - shadcn/ui v4 (Tailwind v4 compatible) uses `@import "shadcn/tailwind.css"` and `@import "tw-animate-css"` instead of manual plugin configs
+  - The `--style new-york` is the default for shadcn/ui and includes smaller, more refined components
+---
+
+## 2026-02-22 - US-016
+- What was implemented:
+  - Installed `@tanstack/react-table`, `@tanstack/react-query`, and `@tanstack/react-query-devtools`
+  - Created `QueryClient` in `main.tsx` and wrapped App with `QueryClientProvider`
+  - Added `ReactQueryDevtools` component (visible in development only)
+  - Created TypeScript types for Position (`src/types/position.ts`) matching backend `PositionResponse` schema
+  - Created typed `usePositions` hook (`src/hooks/usePositions.ts`) that fetches from the API with query params and auth token
+  - TypeScript typecheck and Vite production build both pass
+- Files changed:
+  - `frontend/package.json` (modified — added @tanstack/react-table, @tanstack/react-query, devtools)
+  - `frontend/src/main.tsx` (modified — added QueryClientProvider + ReactQueryDevtools)
+  - `frontend/src/types/position.ts` (new — Position type with computed fields)
+  - `frontend/src/hooks/usePositions.ts` (new — typed usePositions query hook)
+- **Learnings:**
+  - `@tanstack/react-query-devtools` is a devDependency; it auto-hides in production builds
+  - Position types use `number` for backend `Decimal` fields (JSON serializes as number)
+  - `useQuery` generic parameter `useQuery<Position[]>` provides return type inference
+  - `VITE_API_URL` env var used for API base URL with fallback to localhost:8000
+---
+
+## 2026-02-22 - US-017
+- What was implemented:
+  - Installed `react-router` (v7) for client-side routing
+  - Created route configuration in `App.tsx`: `/login` (public), `/` (Open Positions), `/history`, `/dashboard`, `/settings` (all authenticated)
+  - Created `Layout` component with persistent sidebar nav using `NavLink` for active state highlighting
+  - Created `AuthGuard` component that wraps authenticated routes and redirects to `/login` when no user
+  - Created placeholder page components: `OpenPositions`, `History`, `Dashboard`, `Settings`, `Login`
+  - Created `useAuth` hook (stub) returning a dev user — to be replaced by Supabase auth in US-018
+  - Layout uses nested `<Route>` + `<Outlet>` pattern for shared sidebar across authenticated pages
+- Files changed:
+  - `frontend/package.json` (modified — added react-router)
+  - `frontend/src/App.tsx` (rewritten — router configuration)
+  - `frontend/src/components/Layout.tsx` (new — sidebar nav + content outlet)
+  - `frontend/src/components/AuthGuard.tsx` (new — auth guard with redirect)
+  - `frontend/src/hooks/useAuth.ts` (new — auth stub)
+  - `frontend/src/pages/OpenPositions.tsx` (new — placeholder)
+  - `frontend/src/pages/History.tsx` (new — placeholder)
+  - `frontend/src/pages/Dashboard.tsx` (new — placeholder)
+  - `frontend/src/pages/Settings.tsx` (new — placeholder)
+  - `frontend/src/pages/Login.tsx` (new — placeholder)
+- **Learnings:**
+  - React Router v7 uses `react-router` package (not `react-router-dom`); `BrowserRouter`, `Routes`, `Route` all from `react-router`
+  - `NavLink` with `className` callback `({ isActive }) => ...` provides active state styling
+  - Nested `<Route element={<AuthGuard />}>` with `<Outlet />` cleanly wraps all authenticated routes
+  - `end` prop on NavLink for `/` index route prevents it from matching all paths
+  - Layout route pattern: `<Route element={<Layout />}>` → child routes render inside Layout's `<Outlet />`
+---
+
+## 2026-02-22 - US-018
+- What was implemented:
+  - Installed `@supabase/supabase-js` and created Supabase client (`src/lib/supabase.ts`) using `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+  - Created `AuthProvider` context (`src/contexts/AuthContext.tsx`) exposing: `user`, `session`, `loading`, `signIn`, `signOut`
+  - Auth state initialized from `supabase.auth.getSession()` and kept in sync via `onAuthStateChange` listener
+  - Token refresh is handled automatically by the Supabase client (built-in)
+  - Updated `useAuth` hook to consume the real `AuthContext` (replaced dev stub)
+  - Created `apiFetch` utility (`src/lib/api.ts`) that attaches `Authorization: Bearer <token>` automatically
+  - Updated `usePositions` hook to get token from auth context and pass to `apiFetch`
+  - Wrapped App with `AuthProvider` in `main.tsx`
+- Files changed:
+  - `frontend/package.json` (modified — added @supabase/supabase-js)
+  - `frontend/src/lib/supabase.ts` (new — Supabase client initialization)
+  - `frontend/src/lib/api.ts` (new — fetch wrapper with auth token)
+  - `frontend/src/contexts/AuthContext.tsx` (new — AuthProvider with signIn/signOut)
+  - `frontend/src/hooks/useAuth.ts` (rewritten — now uses AuthContext)
+  - `frontend/src/hooks/usePositions.ts` (modified — uses apiFetch + auth token from context)
+  - `frontend/src/main.tsx` (modified — wrapped with AuthProvider)
+- **Learnings:**
+  - `@supabase/supabase-js` handles token refresh internally via `onAuthStateChange` with `TOKEN_REFRESHED` event
+  - `supabase.auth.getSession()` returns the initial session (from localStorage); `onAuthStateChange` keeps it updated
+  - React 19 context uses `<AuthContext value={...}>` (not `.Provider`) via the new context API
+  - `session.access_token` is the JWT to send to the backend; session is `null` when not authenticated
+  - `enabled: !!token` in useQuery prevents API calls when not authenticated
+---
+
+## 2026-02-22 - US-019
+- What was implemented:
+  - Built Login page with email/password form using shadcn/ui Card, Input, Label, Button components
+  - Form calls `signIn(email, password)` from AuthContext on submit
+  - Failed login displays error message below form fields
+  - Successful login triggers auth state change → AuthGuard allows access → redirects to `/`
+  - Already-authenticated users visiting `/login` are redirected to `/` via `<Navigate />`
+  - Added shadcn/ui Input, Label, Card components via `npx shadcn@latest add`
+- Files changed:
+  - `frontend/src/pages/Login.tsx` (rewritten — full login form with error handling)
+  - `frontend/src/components/ui/input.tsx` (new — shadcn/ui Input)
+  - `frontend/src/components/ui/label.tsx` (new — shadcn/ui Label)
+  - `frontend/src/components/ui/card.tsx` (new — shadcn/ui Card)
+- **Learnings:**
+  - shadcn/ui Card has subcomponents: CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+  - Login redirect flow: signIn → Supabase updates session → onAuthStateChange fires → user state updates → AuthGuard re-renders → allows access
+  - `<Navigate to="/" replace />` for already-authenticated users prevents login page flash
+  - `disabled={submitting}` on Button prevents double-submit; `try/catch/finally` ensures `setSubmitting(false)` always runs
+---
+
+## 2026-02-22 - US-020
+- What was implemented:
+  - Enhanced `apiFetch` with 401 token refresh: on 401, calls `supabase.auth.refreshSession()`, retries with new token; on refresh failure, redirects to `/login`
+  - Created typed API functions for all backend endpoints: `getAccounts`, `createAccount`, `updateAccount`, `getPositions`, `createPosition`, `updatePosition`, `closePosition`, `rollPosition`, `getDashboardSummary`, `getDashboardByTicker`
+  - Created TypeScript types for `Account`, `AccountCreate`, `AccountUpdate` (`src/types/account.ts`)
+  - Created TypeScript types for `DashboardSummary`, `TickerSummary` (`src/types/dashboard.ts`)
+  - Updated `usePositions` hook to use typed `getPositions` and `PositionFilters` from API client
+  - API base URL configurable via `VITE_API_BASE_URL` env var
+- Files changed:
+  - `frontend/src/lib/api.ts` (rewritten — full API client with 401 handling and typed functions)
+  - `frontend/src/types/account.ts` (new — Account types)
+  - `frontend/src/types/dashboard.ts` (new — Dashboard types)
+  - `frontend/src/hooks/usePositions.ts` (simplified — uses getPositions from api.ts)
+- **Learnings:**
+  - 401 interceptor pattern: check `res.status === 401`, try `supabase.auth.refreshSession()`, retry with new token, redirect on failure
+  - `window.location.href = "/login"` is a hard redirect (full page reload) — appropriate for auth failure to clear all state
+  - Typed API functions follow consistent pattern: `functionName(params, token)` → `apiFetch<ReturnType>(path, token, options)`
+  - `Object.entries(params)` + `URLSearchParams` for clean query string building from filter objects
+---
+
+## 2026-02-22 - US-021
+- What was implemented:
+  - Built account management section on the Settings page with table showing name, broker, tax treatment
+  - Add Account button opens `AccountFormDialog` modal with name (text), broker (Select dropdown: robinhood, merrill, other), optional tax treatment
+  - Edit button on each row opens same dialog pre-filled with existing account data
+  - `useAccounts`, `useCreateAccount`, `useUpdateAccount` hooks using TanStack Query mutations with `invalidateQueries` on success
+  - Account list auto-refreshes after add/edit via query invalidation
+  - Added shadcn/ui Dialog and Select components
+- Files changed:
+  - `frontend/src/pages/Settings.tsx` (rewritten — account management section)
+  - `frontend/src/components/AccountFormDialog.tsx` (new — add/edit account modal)
+  - `frontend/src/hooks/useAccounts.ts` (new — useAccounts, useCreateAccount, useUpdateAccount)
+  - `frontend/src/components/ui/dialog.tsx` (new — shadcn/ui Dialog)
+  - `frontend/src/components/ui/select.tsx` (new — shadcn/ui Select)
+- **Learnings:**
+  - `useMutation` + `onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] })` auto-refreshes the list after mutations
+  - Single `AccountFormDialog` component handles both add and edit by checking for `account` prop
+  - `useEffect` on `[account, open]` resets form state when dialog opens (prevents stale data)
+  - shadcn/ui Select uses Radix primitives: `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`
+---
+
+## 2026-02-22 - US-022
+- What was implemented:
+  - Created `PositionsTable` component using TanStack Table with `useReactTable`, `getCoreRowModel`, `getSortedRowModel`
+  - Defined `openPositionColumns` column definitions with formatters: currency (Intl.NumberFormat), percent, abbreviations (CC/CSP)
+  - All columns support sorting via `getToggleSortingHandler()` with arrow indicators
+  - Sticky header via `sticky top-0` class on TableHeader
+  - Empty state with dashed border and prompt message
+  - Loading and error states shown on the OpenPositions page
+  - Data fetched via `usePositions({ status: "OPEN" })` using TanStack Query
+  - Added shadcn/ui Table component
+- Files changed:
+  - `frontend/src/components/PositionsTable.tsx` (new — TanStack Table with columns and sorting)
+  - `frontend/src/pages/OpenPositions.tsx` (rewritten — uses PositionsTable with data fetching)
+  - `frontend/src/components/ui/table.tsx` (new — shadcn/ui Table)
+- **Learnings:**
+  - TanStack Table column definitions: `accessorKey` for data binding, `header` for display name, `cell` for custom rendering
+  - `getSortedRowModel()` enables client-side sorting; `onSortingChange` + `state.sorting` for controlled state
+  - `getToggleSortingHandler()` returns an event handler for click-to-sort headers
+  - `flexRender()` is used to render both header and cell content from column definitions
+  - Separate `openPositionColumns` export allows reuse and customization for different table views
+---
+
+## 2026-02-22 - US-023
+- What was implemented:
+  - Created `AddPositionDialog` component with full form: account (Select), ticker (auto-uppercased Input), type (Select: CC/CSP), open date, expiration date, strike price, contracts, premium per share
+  - Optional fields: multiplier (default 100), open fees, notes (Textarea), tags (comma-separated Input)
+  - Client-side validation with inline error messages for all required fields
+  - Created `useCreatePosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Integrated "Add Position" button into `OpenPositions.tsx` header, opens dialog
+  - Dialog closes on successful submission; positions table auto-refreshes via query invalidation
+  - Added shadcn/ui Textarea component for notes field
+  - TypeScript typecheck and Vite build both pass
+- Files changed:
+  - `frontend/src/components/AddPositionDialog.tsx` (new — modal form with validation)
+  - `frontend/src/hooks/useCreatePosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added Add Position button + dialog integration)
+  - `frontend/src/components/ui/textarea.tsx` (new — shadcn/ui Textarea)
+- **Learnings:**
+  - Form dialogs: `useEffect` on `[open, accounts]` resets all form state when dialog opens (prevents stale data)
+  - Ticker auto-uppercasing in `onChange` gives instant visual feedback (vs only on submit)
+  - `useMutation` + `onSuccess` callback in `.mutate()` call allows closing dialog on success while keeping mutation hook reusable
+  - `.ralph/prd.json` is gitignored — use `git add -f` to force-add it
+  - Tags as comma-separated string → `split(",").map(trim).filter(Boolean)` is a clean pattern for optional array fields
+  - Validation pattern: separate `validate()` function sets `validationErrors` state object keyed by field name; cleared on dialog open
+---
+
+## 2026-02-22 - US-024
+- What was implemented:
+  - Created `ClosePositionDialog` component with fields: outcome (Select: Expired/Assigned/Closed Early), close date (default today), close price per share (optional), close fees (optional)
+  - Created `useClosePosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Added "Close" action button to the Open Positions table via a new actions column
+  - `openPositionColumns` now accepts an options object with `onClose` callback to render the action button
+  - Close dialog triggered from row action button; on success, position disappears from open list (query invalidation)
+  - Error states displayed in the dialog (e.g., trying to close already-closed position)
+  - Form validates close date is required, close price/fees are non-negative
+- Files changed:
+  - `frontend/src/components/ClosePositionDialog.tsx` (new — close position modal)
+  - `frontend/src/hooks/useClosePosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added actions column support)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — wired close dialog and action)
+- **Learnings:**
+  - `openPositionColumns` signature evolved from `(accountNames)` to `(options)` with backwards-compatible detection using `"onClose" in obj`
+  - Actions column uses `id: "actions"` (no `accessorKey`) with `enableSorting: false` to prevent sort on the column
+  - `row.original` in TanStack Table cell renderer gives access to the full data object (Position) for passing to callbacks
+  - `useMutation` with `{ id, body }` param object cleanly handles mutations that need both a resource ID and request body
+  - Close dialog resets state on `open` change via `useEffect([open])` to handle reopening for different positions
+---
+
+## 2026-02-22 - US-025
+- What was implemented:
+  - Created `RollPositionDialog` component with two-step flow: Step 1 closes old position (outcome pre-set to ROLLED), Step 2 opens new position prefilled from old
+  - Step 1 fields: close date (default today), close price per share (optional), close fees (optional)
+  - Step 2 fields: full Add Position form prefilled with old position's ticker, type, account, contracts, multiplier
+  - User can modify any prefilled fields before submitting
+  - Created `useRollPosition` mutation hook using TanStack Query `useMutation` with `invalidateQueries` on success
+  - Added "Roll" action button alongside "Close" in the Open Positions table actions column
+  - Extended `OpenPositionColumnOptions` interface with `onRoll` callback
+  - Actions column now renders both Close and Roll buttons in a flex container
+  - On success, dialog closes and positions table refreshes via query invalidation
+  - TypeScript typecheck, Vite build, and all 170 backend tests pass
+- Files changed:
+  - `frontend/src/components/RollPositionDialog.tsx` (new — two-step roll modal)
+  - `frontend/src/hooks/useRollPosition.ts` (new — TanStack Query mutation hook)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added onRoll to options, multi-button actions column)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — wired roll dialog, mutation, and action)
+- **Learnings:**
+  - Two-step dialog pattern: use `step` state (1 | 2) with conditional form rendering; Back button sets `setStep(1)`, Next validates and sets `setStep(2)`
+  - Prefilling from old position: set state in `useEffect([open, position])` — ticker, type, account_id, contracts, multiplier copied; strike, premium, expiration left blank for user to fill
+  - Multiple action buttons in TanStack Table: wrap in a `<div className="flex gap-1">` and conditionally render each based on callback presence
+  - `PositionRollBody` uses nested `close` and `open` objects matching the backend schema; outcome is NOT sent by client (backend hardcodes ROLLED)
+---
+
+## 2026-02-22 - US-026
+- What was implemented:
+  - Built History page with closed positions table displaying: ticker, type, account, strike, contracts, premium total, premium net, open date, close date, outcome, annualized ROC
+  - Added `closedPositionColumns` function to `PositionsTable.tsx` for closed-position-specific column definitions
+  - Rolled positions show a blue dot visual indicator next to the outcome with roll_group_id tooltip
+  - Filter bar with: ticker search (auto-uppercased), type (Select), account (Select), outcome (Select: Expired/Assigned/Closed Early/Rolled), date range (From/To date inputs)
+  - Ticker, type, account, and date range filters use backend query params; outcome filter is client-side (backend doesn't support outcome param)
+  - Sorting works on all columns via TanStack Table (reuses PositionsTable component)
+  - Data fetched via `usePositions({ status: "CLOSED", ...filters })` with TanStack Query
+  - Empty state with dashed border and helpful message
+  - Loading and error states displayed
+- Files changed:
+  - `frontend/src/pages/History.tsx` (rewritten — full history page with filters and table)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added closedPositionColumns export)
+- **Learnings:**
+  - `closedPositionColumns` follows same pattern as `openPositionColumns` but with different column set (premium_net, close_date, outcome instead of DTE, collateral)
+  - Rolled position indicator: `row.original.roll_group_id` combined with outcome check provides visual linking for roll groups
+  - Outcome filter must be client-side since the backend `GET /api/v1/positions` doesn't support an `outcome` query param
+  - Filter state with "ALL" sentinel value works well with Select component — conditionally spread into PositionFilters only when not "ALL"
+  - Auto-uppercase on ticker input `onChange` gives immediate visual feedback matching how the backend stores tickers
+---
+
+## 2026-02-22 - US-027
+- What was implemented:
+  - Built Dashboard page with summary widgets: Total Premium Collected, Premium MTD, Open Position Count, Upcoming Expirations (next 7 days)
+  - Each widget uses shadcn/ui Card with prominent value formatting (currency for premiums, plain count for position count)
+  - Created `useDashboardSummary` hook using TanStack Query, fetches from `GET /api/v1/dashboard/summary`
+  - Loading skeletons (shadcn/ui Skeleton) display while data is being fetched
+  - Date range filter (From/To date inputs) allows scoping the summary to a custom period, passed as query params to the API
+  - Upcoming expirations rendered as a list of position cards showing ticker, type, contracts, strike, expiration date, and DTE
+  - Empty state for upcoming expirations shows descriptive message
+  - Error state displayed when API call fails
+  - Added shadcn/ui Skeleton component via `npx shadcn@latest add skeleton`
+- Files changed:
+  - `frontend/src/pages/Dashboard.tsx` (rewritten — full dashboard with summary widgets, date filter, loading skeletons)
+  - `frontend/src/hooks/useDashboardSummary.ts` (new — TanStack Query hook for dashboard summary)
+  - `frontend/src/components/ui/skeleton.tsx` (new — shadcn/ui Skeleton component)
+- **Learnings:**
+  - `useDashboardSummary` follows same pattern as `usePositions`: query key includes filter params for automatic refetch on filter change
+  - Card widgets with `text-3xl font-bold` for values and `text-sm font-medium text-muted-foreground` for labels follows dashboard design conventions
+  - `Intl.NumberFormat` with `style: "currency"` gives consistent currency formatting across the app
+  - Upcoming expirations come as full `Position[]` from the API, so the same Position type is reused
+  - Grid layout `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` provides responsive widget layout; upcoming expirations span full width with `col-span-full`
+---
+
+## 2026-02-22 - US-028
+- What was implemented:
+  - Created `useDashboardByTicker` hook following same pattern as `useDashboardSummary` (query key includes date filter params)
+  - Added ticker summary table to Dashboard page below the summary widgets
+  - Table displays: ticker (bold), total premium (currency), trade count, avg annualized ROC (percentage)
+  - Data sorted by total premium descending (backend handles default sort)
+  - Respects same date range filter (From/To) as summary widgets via shared `filters` object
+  - Loading state with skeleton rows; empty state with dashed border message
+  - Error state displays failure message independently of summary error
+- Files changed:
+  - `frontend/src/hooks/useDashboardByTicker.ts` (new — TanStack Query hook)
+  - `frontend/src/pages/Dashboard.tsx` (modified — added ticker table section, imports)
+- **Learnings:**
+  - `useDashboardByTicker` is nearly identical to `useDashboardSummary` — same `DashboardFilters` param, same query key structure with date params
+  - Reusing the existing `Table` shadcn/ui component from US-022 — no new component installs needed
+  - `avg_annualized_roc` from backend is a decimal (0.15 = 15%); multiply by 100 and `.toFixed(1)` for display
+  - Sharing the `filters` object between `useDashboardSummary` and `useDashboardByTicker` ensures both sections respect the same date range automatically
+---
+
+## 2026-02-22 - US-029
+- What was implemented:
+  - Created `app/schemas/price.py` with `TickerPrice` and `PriceResponse` Pydantic schemas
+  - Created `app/routers/prices.py` with `GET /api/v1/prices?tickers=AAPL,TSLA` endpoint
+  - Uses `yfinance` library to fetch current stock prices via `yf.download()`
+  - In-memory cache with 60-second TTL: `{ticker: (TickerPrice, timestamp)}` dict
+  - Per-ticker caching — only fetches tickers not already in cache (or expired)
+  - Invalid tickers return null values for `current_price`, `change_percent`, `last_fetched` (no errors)
+  - Tickers are uppercased before fetching
+  - Endpoint requires authentication via `get_current_user` dependency
+  - Response includes `last_fetched` UTC timestamp per ticker
+  - Added `yfinance>=0.2,<1` to `requirements.txt`
+  - Wired router into `app/main.py`
+  - Updated `app/schemas/__init__.py` with `PriceResponse` and `TickerPrice` exports
+  - Created `tests/test_prices.py` with 9 tests covering: valid data, invalid ticker nulls, cache hit, cache expiry, auth required, timestamp, uppercase, empty tickers, multiple tickers
+- Files changed:
+  - `backend/app/schemas/price.py` (new)
+  - `backend/app/routers/prices.py` (new)
+  - `backend/app/main.py` (modified — added prices router)
+  - `backend/app/schemas/__init__.py` (modified — added exports)
+  - `backend/requirements.txt` (modified — added yfinance)
+  - `backend/tests/test_prices.py` (new)
+- **Learnings:**
+  - `yfinance.download()` with `period="2d"` and `interval="1d"` gives 2 close prices for computing change %
+  - Single-ticker vs multi-ticker yfinance results differ in shape: single returns flat `data["Close"]`, multi returns `data["Close"][ticker]`
+  - In-memory dict cache with `time.time()` timestamps is the simplest caching approach for a single-server, 1-2 user app
+  - `patch.object(module, "_fetch_prices")` is cleaner than mocking yfinance internals for testing the router
+  - `autouse=True` fixture clearing `_price_cache` prevents test pollution from cached state
+  - yfinance lazy import inside `_fetch_prices` avoids import-time slowdowns and makes testing easier
+---
+
+## 2026-02-22 - US-030
+- What was implemented:
+  - Created `src/types/price.ts` with `TickerPrice` and `PriceResponse` TypeScript interfaces matching backend schemas
+  - Added `getPrices()` API function to `src/lib/api.ts` that calls `GET /api/v1/prices?tickers=...`
+  - Created `usePrices` hook (`src/hooks/usePrices.ts`) with TanStack Query, `refetchInterval: 60_000` for 60-second polling, deduplicates tickers for stable query key
+  - Added "Current Price" column to `openPositionColumns` in `PositionsTable.tsx` showing live price and change % per ticker
+  - Stale price indicator: orange "!" appears when `last_fetched` is >5 minutes old (with tooltip)
+  - Price near strike highlights: yellow background + bold for CC where price >= strike * 0.95 and CSP where price <= strike * 1.05
+  - Updated `OpenPositions.tsx` to collect distinct tickers from open positions, call `usePrices`, and pass `priceMap` to column definitions
+  - TypeScript typecheck, Vite build, and all 179 backend tests pass
+- Files changed:
+  - `frontend/src/types/price.ts` (new — TickerPrice, PriceResponse interfaces)
+  - `frontend/src/lib/api.ts` (modified — added getPrices function and PriceResponse import)
+  - `frontend/src/hooks/usePrices.ts` (new — TanStack Query hook with 60s polling)
+  - `frontend/src/components/PositionsTable.tsx` (modified — added Current Price column, isPriceStale, isNearStrike helpers, TickerPrice import)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated usePrices, priceMap, passed to columns)
+- **Learnings:**
+  - `usePrices` uses deduplicated, sorted ticker list as query key for stability across re-renders
+  - `accessorFn` on a TanStack Table column allows computing the sort value from external data (prices map)
+  - Price near strike threshold: 0.95 for CC (price above strike) and 1.05 for CSP (price below strike) — both are 5% thresholds
+  - `isPriceStale` compares `Date.now()` against parsed `last_fetched` timestamp — backend returns ISO datetime
+  - `refetchInterval: 60_000` in useQuery enables automatic polling every 60 seconds without manual setInterval
+  - Price column uses conditional styling: yellow bg for near-strike, orange "!" for stale, green/red for change %
+---
+
+## 2026-02-22 - US-031
+- What was implemented:
+  - Created `useAlerts` hook (`src/hooks/useAlerts.ts`) that evaluates positions + prices to produce three alert types: expiration (within 7 days), near-strike (5% threshold), stale price (>5 min)
+  - Each alert has a unique ID: `exp-{positionId}`, `near-{positionId}`, `stale-{ticker}`
+  - Dismissal tracked in state via `Set<string>`; dismissed alerts reset when price data refreshes (new `priceFingerprint`)
+  - Price fingerprint computed from all `last_fetched` timestamps joined — detects price refresh cycles
+  - Created `AlertBanner` component (`src/components/AlertBanner.tsx`) with color-coded alert rows: orange for expiration, yellow for near-strike, gray for stale price
+  - Each alert is individually dismissible (x button); "Dismiss all" button when >1 alert
+  - Banner renders at top of Open Positions page between header and table
+  - Alert evaluation runs on every price refresh via `useMemo` dependency on `priceMap`
+  - Default thresholds: 7 days expiration, 0.05 near-strike, 5 min stale — structured as constants for US-034 settings override
+- Files changed:
+  - `frontend/src/hooks/useAlerts.ts` (new — alert computation + dismiss logic)
+  - `frontend/src/components/AlertBanner.tsx` (new — alert banner UI)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useAlerts + AlertBanner)
+- **Learnings:**
+  - Price fingerprint pattern: join all `last_fetched` timestamps to detect when price data actually refreshes vs just re-renders
+  - `useRef` for previous fingerprint avoids resetting dismissals on initial render (only reset when fingerprint actually changes)
+  - Stale price alerts deduplicated per ticker using a `Set` — multiple positions with same ticker only produce one stale alert
+  - Alert type constants (thresholds) kept as module-level constants for easy override in US-034 settings feature
+  - Near-strike formula: CC uses `price >= strike * (1 - threshold)`, CSP uses `price <= strike * (1 + threshold)` — matches the PositionsTable `isNearStrike` helper
+---
+
+## 2026-02-22 - US-032
+- What was implemented:
+  - Created `app/routers/export.py` with `GET /api/v1/export/positions.csv` endpoint
+  - Returns downloadable CSV file with Content-Disposition header (`attachment; filename="positions_YYYY-MM-DD.csv"`)
+  - Supports query params: `start`, `end` (date range on open_date), `status`, `ticker` (case-insensitive)
+  - CSV includes all 22 position fields plus 6 computed fields (premium_total, premium_net, collateral, roc_period, dte, annualized_roc) — 28 columns total
+  - Uses `PositionResponse.model_validate(orm_obj)` to compute derived fields per row
+  - Tags (list) serialized as semicolon-separated string; None values serialized as empty string
+  - Empty result set returns CSV with headers only (no data rows)
+  - Endpoint requires authentication via `get_current_user` dependency
+  - Wired router into `app/main.py`
+  - Created `tests/test_export.py` with 10 tests covering: CSV content, empty result, computed fields, status filter, ticker filter, date range filter, auth required, filename, tags serialization, multiple positions
+- Files changed:
+  - `backend/app/routers/export.py` (new)
+  - `backend/app/main.py` (modified — added export router)
+  - `backend/tests/test_export.py` (new)
+- **Learnings:**
+  - `StreamingResponse` with `iter([output.getvalue()])` is the simplest way to return CSV as a downloadable file in FastAPI
+  - `Content-Disposition: attachment; filename="..."` triggers browser file download
+  - `csv.writer` + `io.StringIO` for in-memory CSV generation avoids temp files
+  - Reusing `PositionResponse.model_validate()` in the export endpoint leverages existing computed field logic (same as dashboard by-ticker)
+  - Tags as `list[str]` need special serialization for CSV — semicolon separator avoids conflicts with CSV commas
+---
+
+## 2026-02-22 - US-033
+- What was implemented:
+  - Added `exportPositionsCsv` function to `src/lib/api.ts` — fetches CSV as blob, extracts filename from Content-Disposition header, triggers browser download via programmatic `<a>` element
+  - Created `useExportCsv` hook (`src/hooks/useExportCsv.ts`) managing loading state for the export operation
+  - Added "Export CSV" button (variant="outline") to Open Positions page header alongside "Add Position" button
+  - Added "Export CSV" button to History page header, passes current page filters (status=CLOSED, ticker, date range) as query params
+  - Both buttons show "Exporting..." loading state while download is in progress and are disabled during export
+  - Downloaded filename extracted from backend's Content-Disposition header, with client-side fallback to `positions_YYYY-MM-DD.csv`
+  - 401 token refresh handling included in the export function (same pattern as apiFetch)
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/lib/api.ts` (modified — added exportPositionsCsv, triggerDownload, ExportFilters)
+  - `frontend/src/hooks/useExportCsv.ts` (new — export hook with loading state)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added Export CSV button)
+  - `frontend/src/pages/History.tsx` (modified — added Export CSV button with filters)
+- **Learnings:**
+  - CSV download can't use `apiFetch` (which parses JSON); needs direct `fetch` → `res.blob()` → `URL.createObjectURL` → programmatic `<a>` click
+  - `Content-Disposition` header filename extraction: `res.headers.get("Content-Disposition")?.match(/filename="?([^"]+)"?/)`
+  - `URL.revokeObjectURL(url)` after download prevents memory leaks from blob URLs
+  - Export filters differ from `PositionFilters` — backend export uses `start`/`end` (not `expiration_start`/`expiration_end`) and doesn't support `account_id`
+  - Simple `useState` hook is sufficient for export loading state — no need for TanStack Query `useMutation` since there's no cache invalidation or data return
+---
+
+## 2026-02-22 - US-034
+- What was implemented:
+  - Created `SettingsContext` (`src/contexts/SettingsContext.tsx`) with `SettingsProvider`, `useSettings` hook, and `AppSettings` type
+  - Settings persisted in localStorage under key `wheelhouse_settings`; loaded on init with fallback to defaults
+  - `updateSettings(partial)` merges partial updates into current settings and saves immediately
+  - Added alert threshold form section to Settings page above the existing account management section
+  - Three configurable fields: expiration warning days (number input, min 1), price near strike % (integer input converted to/from decimal), stale price minutes (number input, min 1)
+  - Wired `SettingsProvider` into `main.tsx` wrapping the entire app
+  - Updated `useAlerts` to accept optional `AppSettings` parameter, replacing hardcoded constants
+  - Updated `PositionsTable.tsx` `isPriceStale` and `isNearStrike` helpers to accept threshold parameters
+  - Added `nearStrikeThreshold` and `stalePriceMinutes` to `OpenPositionColumnOptions` interface
+  - Updated `OpenPositions.tsx` to use `useSettings()` and pass settings to both `useAlerts` and `openPositionColumns`
+  - Changes take effect immediately without page reload (React context triggers re-render)
+- Files changed:
+  - `frontend/src/contexts/SettingsContext.tsx` (new — settings context with localStorage persistence)
+  - `frontend/src/main.tsx` (modified — added SettingsProvider wrapper)
+  - `frontend/src/pages/Settings.tsx` (modified — added alert threshold form section)
+  - `frontend/src/hooks/useAlerts.ts` (modified — parameterized thresholds)
+  - `frontend/src/components/PositionsTable.tsx` (modified — parameterized isPriceStale/isNearStrike)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — integrated useSettings, passed to hooks/columns)
+- **Learnings:**
+  - React 19 context uses `<SettingsContext value={...}>` (not `.Provider`) for the new context API
+  - `useCallback` for `updateSettings` prevents unnecessary re-renders of consumers
+  - Near strike threshold stored as decimal (0.05) but displayed as integer percentage (5%) — multiply/divide by 100 at the form boundary
+  - `useState(loadSettings)` with a function reference (not call) defers localStorage read to first render only
+  - Adding thresholds as optional params with defaults to existing functions (`isPriceStale`, `isNearStrike`, `computeAlerts`) maintains backward compatibility
+  - Settings dependencies added to `useMemo` for `columns` and `allAlerts` ensure immediate reactivity when settings change
+---
+
+## 2026-02-22 - US-035
+- What was implemented:
+  - Added column visibility dropdown to `PositionsTable` using shadcn/ui DropdownMenu with `DropdownMenuCheckboxItem`
+  - TanStack Table's built-in `VisibilityState` + `onColumnVisibilityChange` for state management
+  - Column visibility persisted per table via localStorage: `wheelhouse_open_col_vis` and `wheelhouse_history_col_vis`
+  - Actions column marked with `enableHiding: false` to prevent hiding
+  - Added filter bar to Open Positions page: ticker search (auto-uppercase), type (Select), account (Select), expiration date range (From/To)
+  - Filter bar matches the History page pattern for consistent UX
+  - Both Open Positions and History tables now have `storageKey` prop for column visibility persistence
+  - Added `overflow-x-auto` to Dashboard ticker table for consistent responsive horizontal scrolling
+  - Installed shadcn/ui `dropdown-menu` and `checkbox` components
+  - TypeScript typecheck, Vite build, and all 189 backend tests pass
+- Files changed:
+  - `frontend/src/components/PositionsTable.tsx` (modified — added column visibility state, dropdown, storageKey prop, localStorage persistence)
+  - `frontend/src/pages/OpenPositions.tsx` (modified — added filter bar, storageKey to PositionsTable)
+  - `frontend/src/pages/History.tsx` (modified — added storageKey to PositionsTable)
+  - `frontend/src/pages/Dashboard.tsx` (modified — added overflow-x-auto to ticker table)
+  - `frontend/src/components/ui/dropdown-menu.tsx` (new — shadcn/ui DropdownMenu)
+  - `frontend/src/components/ui/checkbox.tsx` (new — shadcn/ui Checkbox)
+- **Learnings:**
+  - TanStack Table has built-in column visibility via `VisibilityState` + `onColumnVisibilityChange` — no custom state management needed
+  - `column.getCanHide()` defaults to `true`; set `enableHiding: false` on column defs to exclude from visibility toggle (e.g., actions column)
+  - `DropdownMenuCheckboxItem` from shadcn/ui maps perfectly to column visibility toggles — `checked={col.getIsVisible()}` + `onCheckedChange` to toggle
+  - Per-table localStorage keys (not shared settings context) are cleaner for column visibility since open vs closed tables have different column sets
+  - `typeof col.columnDef.header === "string"` check needed to display column names in dropdown — non-string headers (render functions) fall back to `col.id`
+  - Filter bar pattern (from History.tsx) reused on OpenPositions with `PositionFilters` type — consistent UX across pages
 ---
