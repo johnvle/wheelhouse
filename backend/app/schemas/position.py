@@ -1,9 +1,9 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.schemas.enums import PositionOutcome, PositionStatus, PositionType
 
@@ -12,15 +12,15 @@ class PositionCreate(BaseModel):
     model_config = ConfigDict(strict=False)
 
     account_id: uuid.UUID
-    ticker: str
+    ticker: str = Field(min_length=1, max_length=10)
     type: PositionType
     open_date: date
     expiration_date: date
-    strike_price: Decimal
-    contracts: int
-    premium_per_share: Decimal
-    multiplier: int = 100
-    open_fees: Decimal = Decimal("0")
+    strike_price: Decimal = Field(gt=0)
+    contracts: int = Field(gt=0)
+    premium_per_share: Decimal = Field(ge=0)
+    multiplier: int = Field(default=100, gt=0)
+    open_fees: Decimal = Field(default=Decimal("0"), ge=0)
     notes: Optional[str] = None
     tags: Optional[list[str]] = None
 
@@ -29,19 +29,43 @@ class PositionUpdate(BaseModel):
     model_config = ConfigDict(strict=False)
 
     account_id: Optional[uuid.UUID] = None
-    ticker: Optional[str] = None
+    ticker: Optional[str] = Field(default=None, min_length=1, max_length=10)
     type: Optional[PositionType] = None
     open_date: Optional[date] = None
     expiration_date: Optional[date] = None
-    strike_price: Optional[Decimal] = None
-    contracts: Optional[int] = None
-    premium_per_share: Optional[Decimal] = None
-    multiplier: Optional[int] = None
-    open_fees: Optional[Decimal] = None
-    close_fees: Optional[Decimal] = None
-    close_price_per_share: Optional[Decimal] = None
+    strike_price: Optional[Decimal] = Field(default=None, gt=0)
+    contracts: Optional[int] = Field(default=None, gt=0)
+    premium_per_share: Optional[Decimal] = Field(default=None, ge=0)
+    multiplier: Optional[int] = Field(default=None, gt=0)
+    open_fees: Optional[Decimal] = Field(default=None, ge=0)
+    close_fees: Optional[Decimal] = Field(default=None, ge=0)
+    close_price_per_share: Optional[Decimal] = Field(default=None, ge=0)
     notes: Optional[str] = None
     tags: Optional[list[str]] = None
+
+
+class PositionClose(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    outcome: Literal["EXPIRED", "ASSIGNED", "CLOSED_EARLY"]
+    close_date: date
+    close_price_per_share: Optional[Decimal] = Field(default=None, ge=0)
+    close_fees: Optional[Decimal] = Field(default=None, ge=0)
+
+
+class PositionRollClose(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close_date: date
+    close_price_per_share: Optional[Decimal] = Field(default=None, ge=0)
+    close_fees: Optional[Decimal] = Field(default=None, ge=0)
+
+
+class PositionRoll(BaseModel):
+    model_config = ConfigDict(strict=False)
+
+    close: PositionRollClose
+    open: PositionCreate
 
 
 class PositionResponse(BaseModel):
@@ -109,3 +133,8 @@ class PositionResponse(BaseModel):
         if days_in_trade <= 0:
             return Decimal("0")
         return self.roc_period * Decimal(365) / Decimal(days_in_trade)
+
+
+class PositionRollResponse(BaseModel):
+    closed: PositionResponse
+    opened: PositionResponse

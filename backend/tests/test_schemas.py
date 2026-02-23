@@ -388,3 +388,205 @@ class TestPositionResponse:
         assert hasattr(AccountResponse, "model_config")
         assert hasattr(PositionCreate, "model_config")
         assert hasattr(AccountCreate, "model_config")
+
+
+# ---------------------------------------------------------------------------
+# QA: Validation edge cases (US-036)
+# ---------------------------------------------------------------------------
+
+class TestAccountCreateValidation:
+    """QA validation: account schema rejects invalid inputs."""
+
+    def test_empty_name_rejected(self):
+        with pytest.raises(ValidationError):
+            AccountCreate(name="", broker=Broker.ROBINHOOD)
+
+    def test_very_long_name_rejected(self):
+        with pytest.raises(ValidationError):
+            AccountCreate(name="x" * 256, broker=Broker.ROBINHOOD)
+
+    def test_max_length_name_accepted(self):
+        schema = AccountCreate(name="x" * 255, broker=Broker.ROBINHOOD)
+        assert len(schema.name) == 255
+
+
+class TestAccountUpdateValidation:
+    """QA validation: account update rejects invalid inputs."""
+
+    def test_empty_name_rejected(self):
+        with pytest.raises(ValidationError):
+            AccountUpdate(name="")
+
+    def test_very_long_name_rejected(self):
+        with pytest.raises(ValidationError):
+            AccountUpdate(name="x" * 256)
+
+
+class TestPositionCreateValidation:
+    """QA validation: position create rejects invalid numeric/string inputs."""
+
+    def _defaults(self, **overrides):
+        base = dict(
+            account_id=uuid.uuid4(),
+            ticker="AAPL",
+            type=PositionType.COVERED_CALL,
+            open_date=date(2025, 1, 15),
+            expiration_date=date(2025, 2, 21),
+            strike_price=Decimal("150.00"),
+            contracts=1,
+            premium_per_share=Decimal("3.50"),
+        )
+        base.update(overrides)
+        return base
+
+    def test_negative_strike_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(strike_price=Decimal("-1")))
+
+    def test_zero_strike_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(strike_price=Decimal("0")))
+
+    def test_negative_contracts_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(contracts=-1))
+
+    def test_zero_contracts_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(contracts=0))
+
+    def test_negative_premium_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(premium_per_share=Decimal("-0.01")))
+
+    def test_zero_premium_accepted(self):
+        schema = PositionCreate(**self._defaults(premium_per_share=Decimal("0")))
+        assert schema.premium_per_share == Decimal("0")
+
+    def test_negative_multiplier_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(multiplier=-1))
+
+    def test_zero_multiplier_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(multiplier=0))
+
+    def test_negative_open_fees_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(open_fees=Decimal("-0.50")))
+
+    def test_zero_open_fees_accepted(self):
+        schema = PositionCreate(**self._defaults(open_fees=Decimal("0")))
+        assert schema.open_fees == Decimal("0")
+
+    def test_empty_ticker_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(ticker=""))
+
+    def test_very_long_ticker_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionCreate(**self._defaults(ticker="X" * 11))
+
+    def test_max_length_ticker_accepted(self):
+        schema = PositionCreate(**self._defaults(ticker="A" * 10))
+        assert len(schema.ticker) == 10
+
+
+class TestPositionUpdateValidation:
+    """QA validation: position update rejects invalid values when provided."""
+
+    def test_negative_strike_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(strike_price=Decimal("-1"))
+
+    def test_zero_strike_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(strike_price=Decimal("0"))
+
+    def test_negative_contracts_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(contracts=-1)
+
+    def test_zero_contracts_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(contracts=0)
+
+    def test_negative_close_fees_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(close_fees=Decimal("-0.01"))
+
+    def test_negative_close_price_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(close_price_per_share=Decimal("-1"))
+
+    def test_zero_close_fees_accepted(self):
+        schema = PositionUpdate(close_fees=Decimal("0"))
+        assert schema.close_fees == Decimal("0")
+
+    def test_zero_close_price_accepted(self):
+        schema = PositionUpdate(close_price_per_share=Decimal("0"))
+        assert schema.close_price_per_share == Decimal("0")
+
+    def test_empty_ticker_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(ticker="")
+
+    def test_negative_multiplier_rejected(self):
+        with pytest.raises(ValidationError):
+            PositionUpdate(multiplier=0)
+
+
+class TestPositionCloseValidation:
+    """QA validation: close schema rejects invalid values."""
+
+    def test_negative_close_fees_rejected(self):
+        from app.schemas import PositionClose
+
+        with pytest.raises(ValidationError):
+            PositionClose(
+                outcome="EXPIRED",
+                close_date=date(2025, 2, 21),
+                close_fees=Decimal("-1"),
+            )
+
+    def test_negative_close_price_rejected(self):
+        from app.schemas import PositionClose
+
+        with pytest.raises(ValidationError):
+            PositionClose(
+                outcome="EXPIRED",
+                close_date=date(2025, 2, 21),
+                close_price_per_share=Decimal("-0.01"),
+            )
+
+    def test_zero_close_fees_accepted(self):
+        from app.schemas import PositionClose
+
+        schema = PositionClose(
+            outcome="EXPIRED",
+            close_date=date(2025, 2, 21),
+            close_fees=Decimal("0"),
+        )
+        assert schema.close_fees == Decimal("0")
+
+
+class TestPositionRollCloseValidation:
+    """QA validation: roll close schema rejects invalid values."""
+
+    def test_negative_close_fees_rejected(self):
+        from app.schemas.position import PositionRollClose
+
+        with pytest.raises(ValidationError):
+            PositionRollClose(
+                close_date=date(2025, 2, 21),
+                close_fees=Decimal("-1"),
+            )
+
+    def test_negative_close_price_rejected(self):
+        from app.schemas.position import PositionRollClose
+
+        with pytest.raises(ValidationError):
+            PositionRollClose(
+                close_date=date(2025, 2, 21),
+                close_price_per_share=Decimal("-0.01"),
+            )
