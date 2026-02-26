@@ -1,6 +1,10 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
+
+# Resolve .env from project root (one level above backend/)
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -10,7 +14,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str
     database_url: str
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": str(_ENV_FILE), "extra": "ignore"}
 
 
 @lru_cache

@@ -58,7 +58,25 @@ wheelhouse/
 - Node.js 18+
 - A [Supabase](https://supabase.com) project (free tier works)
 
-### 1. Clone and configure environment
+### Quick start
+
+```bash
+git clone https://github.com/johnvle/wheelhouse.git
+cd wheelhouse
+cp .env.example .env
+# Fill in .env with your Supabase credentials (see below)
+./dev.sh
+```
+
+This sets up the Python venv, installs dependencies, runs database migrations, and starts both servers. Press `Ctrl+C` to stop.
+
+- Frontend: **http://localhost:5173**
+- Backend: **http://localhost:8000**
+- API docs: **http://localhost:8000/docs**
+
+### Manual setup
+
+#### 1. Clone and configure environment
 
 ```bash
 git clone https://github.com/johnvle/wheelhouse.git
@@ -80,7 +98,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-### 2. Start the backend
+#### 2. Start the backend
 
 ```bash
 cd backend
@@ -93,7 +111,7 @@ uvicorn app.main:app --reload
 
 API runs at **http://localhost:8000** — interactive docs at [localhost:8000/docs](http://localhost:8000/docs).
 
-### 3. Start the frontend
+#### 3. Start the frontend
 
 In a separate terminal:
 

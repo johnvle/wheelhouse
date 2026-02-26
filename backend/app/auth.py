@@ -1,6 +1,7 @@
 from uuid import UUID
 
 import jwt
+from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -12,6 +13,18 @@ from app.config import get_settings
 _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+# JWKS client — caches keys and handles rotation automatically
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        settings = get_settings()
+        jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_client
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
@@ -39,11 +52,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         token = parts[1]
         try:
-            settings = get_settings()
+            signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
             payload = jwt.decode(
                 token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
+                signing_key.key,
+                algorithms=["RS256", "ES256", "HS256"],
                 audience="authenticated",
             )
             request.state.user_id = payload["sub"]
@@ -52,7 +65,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": "Token has expired"},
             )
-        except (jwt.InvalidTokenError, KeyError):
+        except (jwt.InvalidTokenError, jwt.PyJWKClientError, KeyError):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid token"},
